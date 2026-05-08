@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Log ve veri dosyaları
+*.csv
+*.log
+~/.dogus_gcs/
+
+# Şifreleme anahtarları — kesinlikle repoya girmesin
+*.key
+gcs_anahtar.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# SRTM cache
+*.hgt
+srtm_cache/

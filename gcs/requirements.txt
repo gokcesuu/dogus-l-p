@@ -1,0 +1,6 @@
+pymavlink>=2.4.40
+PyQt5>=5.15.9
+PyQtWebEngine>=5.15.6
+pyqtgraph>=0.13.3
+srtm.py>=0.3.4
+overpy>=0.6

@@ -1,0 +1,78 @@
+{
+  "_aciklama": "Doğuş Üniversitesi LÖP – GCS Merkezi Konfigürasyon",
+
+  "baglanti": {
+    "varsayilan_dize": "tcp:127.0.0.1:5762",
+    "proxy_port": 14560,
+    "sifreli_port": 5760,
+    "anahtar_dosya": "~/dogus-gcs/gcs_anahtar.key"
+  },
+
+  "pi_kopru": {
+    "dinle_host": "0.0.0.0",
+    "dinle_port": 5760,
+    "seri_port": "/dev/ttyAMA0",
+    "seri_baud": 115200,
+    "anahtar_dosya": "~/dogus-gcs/gcs_anahtar.key",
+    "tampon_boyut": 4096
+  },
+
+  "batarya": {
+    "dusuk_yuzde": 25,
+    "kritik_yuzde": 15,
+    "acil_yuzde": 8,
+    "hucre_sayisi": 4,
+    "hucre_kritik_volt": 3.3
+  },
+
+  "ruzgar": {
+    "dikkat_ms": 5.5,
+    "tehlikeli_ms": 11.1,
+    "kritik_ms": 16.7
+  },
+
+  "hiz_kisitlama": {
+    "normal_cms": 1000,
+    "dusuk_bat_cms": 500,
+    "kritik_bat_cms": 300
+  },
+
+  "guvenlik": {
+    "gps_kayip_sure_ms": 3000,
+    "ekf_hata_esik": 0.8,
+    "irtifa_dusus_esik_ms": -3.0
+  },
+
+  "terrain": {
+    "analiz_adim_m": 150,
+    "horn_ofset_m": 30,
+    "max_egim_derece": 15.0,
+    "guvenli_radius_m": 50,
+    "ayak_izi_yaricap_m": 30.0,
+    "ruzgar_skor_agirligi": 0.10,
+    "osm_zaman_asimi": 10
+  },
+
+  "imu_isi": {
+    "hedef_sicaklik": 35.0,
+    "alt_esik": 30.0,
+    "soguk_hava_esik": -10.0,
+    "soguk_hava_hedef": 40.0,
+    "heat_pin_imu0": 3,
+    "heat_pin_imu1": 4,
+    "heat_pin_imu2": 5
+  },
+
+  "loglama": {
+    "log_klasoru": "~/.dogus_gcs/loglar",
+    "log_yaz_aralik_ms": 1000
+  },
+
+  "rtl_izleyici": {
+    "stabil_sure_s": 15,
+    "kontrol_aralik_s": 25,
+    "min_azalma_m": 20,
+    "batarya_kritik_yuzde": 15,
+    "otomatik_inis_onay_sure_s": 0
+  }
+}
