@@ -230,6 +230,7 @@ HARITA_HTML = """<!DOCTYPE html>
   <button class="green" id="analizBtn" onclick="window.location.href='gcs://guvenli-inis-baslat'">Güvenli İniş Analizi</button>
   <button onclick="window.location.href='gcs://analiz-temizle'">Analizi Temizle</button>
   <button class="red" id="inisBtn" disabled onclick="window.location.href='gcs://guvenli-inise-git'">🚨 Güvenli İnişe Git</button>
+  <button id="rallyBtn" style="background:#1a3c6a;border-color:#2a5c9a;" onclick="window.location.href='gcs://rally-yukle'" title="En iyi 5 güvenli noktayı ArduPilot Rally Point olarak yükle (Katman 2)">📡 Rally Yükle</button>
   <span id="konum">Konum: --</span>
 </div>
 <div id="durum"></div>
@@ -348,11 +349,41 @@ if HARITA_MEVCUT:
                     self._gcs._guvenli_noktalar_temizle()
                 elif eylem == 'guvenli-inise-git':
                     self._gcs._guvenli_inise_git()
+                elif eylem == 'rally-yukle':
+                    self._gcs._rally_yukle_baslat()
                 return False  # gezinme yapma
             return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
 # ── Arkaplan analiz thread'i ──────────────────────────────────────────────────
+
+class _RallyYuklemeThread(QThread):
+    """En iyi N rally noktasını arka planda ArduPilot'a yükler."""
+    tamamlandi = Signal(bool, int)   # (basarili, nokta_sayisi)
+    hata       = Signal(str)
+
+    def __init__(self, npz_dosya: str, baglanti_dizesi: str,
+                 merkez_lat: float = 0.0, merkez_lon: float = 0.0, n: int = 5):
+        super().__init__()
+        self.npz     = npz_dosya
+        self.dize    = baglanti_dizesi
+        self.m_lat   = merkez_lat
+        self.m_lon   = merkez_lon
+        self.n       = n
+
+    def run(self):
+        try:
+            from rally_yukle import en_iyi_noktalar, rally_yukle
+            noktalar = en_iyi_noktalar(
+                self.npz, n=self.n,
+                merkez_lat=self.m_lat if self.m_lat != 0.0 else None,
+                merkez_lon=self.m_lon if self.m_lon != 0.0 else None,
+            )
+            basarili = rally_yukle(noktalar, baglanti_dizesi=self.dize)
+            self.tamamlandi.emit(basarili, len(noktalar))
+        except Exception as e:
+            self.hata.emit(str(e))
+
 
 class TerrainAnalizThread(QThread):
     tamamlandi = Signal(object)   # AnalizSonucu
@@ -1271,6 +1302,42 @@ class AnaPencere(QMainWindow):
                 f"durumGoster('Analiz hatası: {mesaj}');"
             )
         self._mesaj_ekle(3, f"Arazi analiz hatası: {mesaj}")
+
+    # ── Rally Point yükleme (Katman 2) ───────────────────────────────────────
+
+    def _rally_yukle_baslat(self):
+        """
+        Terrain analizinden çıkan en iyi 5 noktayı ArduPilot'a
+        Rally Point olarak yükler.  Ayrı bir QThread'de çalışır.
+        """
+        if not self._bagli:
+            QMessageBox.warning(self, "Bağlantı Yok", "Önce drone'a bağlanın.")
+            return
+
+        npz = os.path.join(os.path.dirname(__file__), "alan_verisi.npz")
+        if not os.path.isfile(npz):
+            npz = "alan_verisi.npz"
+        if not os.path.isfile(npz):
+            QMessageBox.warning(
+                self, "Dosya Yok",
+                "alan_verisi.npz bulunamadı.\n"
+                "Önce 'ucus_alani_hazirla.py' ile alanı hazırlayın.",
+            )
+            return
+
+        dize = self._mavlink.baglanti_dizesi
+        self._mesaj_ekle(6, f"Rally Point yükleme başlıyor ({dize})…")
+
+        self._rally_thread = _RallyYuklemeThread(npz, dize, self._guncel_lat, self._guncel_lon)
+        self._rally_thread.tamamlandi.connect(self._rally_yukle_tamamlandi)
+        self._rally_thread.hata.connect(lambda m: self._mesaj_ekle(3, f"Rally hata: {m}"))
+        self._rally_thread.start()
+
+    def _rally_yukle_tamamlandi(self, basarili: bool, n: int):
+        if basarili:
+            self._mesaj_ekle(4, f"✓ {n} Rally Point ArduPilot'a yüklendi (Katman 2 aktif).")
+        else:
+            self._mesaj_ekle(3, f"✗ Rally Point yüklenemedi — log'u kontrol edin.")
 
     # ── Genel ────────────────────────────────────────────────────────────────
 
