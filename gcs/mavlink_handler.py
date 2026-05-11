@@ -87,6 +87,7 @@ class MAVLinkBaglantisi(QThread):
     gps_guncellendi = pyqtSignal(int, int, float, float)  # (fix, uydu, lat, lon)
     tutum_guncellendi = pyqtSignal(float, float, float)  # (roll_deg, pitch_deg, yaw_deg)
     ruzgar_guncellendi = pyqtSignal(float, float)   # (hiz_ms, yon_derece)
+    lidar_guncellendi  = pyqtSignal(float)          # mesafe_m (DISTANCE_SENSOR)
     imu_sicakligi = pyqtSignal(int, float)          # (imu_no 0-2, sicaklik_c)
     durum_mesaji = pyqtSignal(int, str)             # (severity 0-7, metin)
     ekf_durumu = pyqtSignal(int, float)             # (bayraklar, hata_puani)
@@ -257,6 +258,8 @@ class MAVLinkBaglantisi(QThread):
                 self._isle_tutum(msg)
             elif tip == "WIND":
                 self._isle_ruzgar(msg)
+            elif tip == "DISTANCE_SENSOR":
+                self._isle_lidar(msg)
             elif tip == "SCALED_IMU":
                 self._isle_imu_sicaklik(msg, 0)
             elif tip == "SCALED_IMU2":
@@ -318,6 +321,13 @@ class MAVLinkBaglantisi(QThread):
 
     def _isle_ruzgar(self, msg):
         self.ruzgar_guncellendi.emit(msg.speed, msg.direction)
+
+    def _isle_lidar(self, msg):
+        """DISTANCE_SENSOR mesajı — sensör yönü downward (orientation=25) tercih edilir."""
+        # current_distance: cm cinsinden; 65535 = geçersiz/out-of-range
+        if msg.current_distance < 65535:
+            mesafe_m = msg.current_distance / 100.0
+            self.lidar_guncellendi.emit(mesafe_m)
 
     def _isle_imu_sicaklik(self, msg, imu_no: int):
         if hasattr(msg, "temperature"):

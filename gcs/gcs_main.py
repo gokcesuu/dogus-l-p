@@ -415,11 +415,31 @@ class AnaPencere(QMainWindow):
         self._guncel_eve_uzaklik = 0.0
         self._guncel_ekf_hata    = 0.0
         self._guncel_gps_fix     = 0
+        self._guncel_lidar_m: float = None   # DISTANCE_SENSOR
+
+        # Rüzgar: config eşikleri + EMA filtresi
+        self._ruz_tehlikeli_ms = float(_cfg.al("ruzgar.tehlikeli_ms", 11.1))
+        self._ruz_kritik_ms    = float(_cfg.al("ruzgar.kritik_ms",    16.7))
+        self._ruz_ema          = 0.0   # üstel hareketli ortalama (m/s)
 
         # RTL izleyici
         self._rtl_izleyici = RtlIzleyici(tetiklendi_cb=self._rtl_fallback_tetiklendi)
         self._son_mod_id   = -1
         self._ruzgar_acil_inis_bekliyor = False
+
+        # Alan iniş kararı — alan_verisi.npz varsa yükle
+        self._alan_karar = None
+        self._alan_karar_son_uyari = 0.0   # debounce (5 sn)
+        _npz = os.path.join(os.path.dirname(__file__), "alan_verisi.npz")
+        if not os.path.isfile(_npz):
+            _npz = "alan_verisi.npz"       # çalışma dizininde ara
+        if os.path.isfile(_npz):
+            try:
+                from alan_inis_karar import AlanInisKarar
+                self._alan_karar = AlanInisKarar(_npz)
+                self._mesaj_ekle(6, f"Alan veri dosyası yüklendi: {os.path.basename(_npz)}")
+            except Exception as _e:
+                self._mesaj_ekle(3, f"Alan verisi yüklenemedi: {_e}")
 
         self._durum_guncelle("Bağlantı bekleniyor…", "#ffc107")
 
@@ -436,6 +456,7 @@ class AnaPencere(QMainWindow):
         m.gps_guncellendi.connect(self._gps_guncelle)
         m.tutum_guncellendi.connect(self._tutum_guncelle)
         m.ruzgar_guncellendi.connect(self._ruzgar_guncelle)
+        m.lidar_guncellendi.connect(self._lidar_guncelle)
         m.imu_sicakligi.connect(self._imu_guncelle)
         m.durum_mesaji.connect(self._mesaj_ekle)
         m.ekf_durumu.connect(self._ekf_guncelle)
@@ -841,7 +862,7 @@ class AnaPencere(QMainWindow):
         self._rtl_izleyici.guncelle(
             uzaklik,
             getattr(self, "_guncel_batarya_yuzde", 100),
-            self._log_satiri.get("ruzgar_ms", 0.0) / 3.6,
+            self._log_satiri.get("ruzgar_ms", 0.0),   # zaten m/s
             self._guncel_ekf_hata,
             self._guncel_gps_fix,
         )
@@ -873,6 +894,18 @@ class AnaPencere(QMainWindow):
         self._guncel_gps_fix = fix
         self._log_satiri.update({"gps_fix": fix, "gps_uydu": uydu, "lat": lat, "lon": lon})
 
+        # Alan iniş kararı — npz varsa her GPS güncellemesinde anlık sorgula
+        if self._alan_karar is not None and lat != 0.0:
+            try:
+                karar = self._alan_karar.inis_karari(lat, lon, self._guncel_lidar_m)
+                if not karar.inebilir:
+                    simdi = time.monotonic()
+                    if simdi - self._alan_karar_son_uyari >= 5.0:
+                        self._alan_karar_son_uyari = simdi
+                        self._mesaj_ekle(3, f"Alan: {karar.neden}")
+            except Exception:
+                pass   # Koordinat sınır dışı vb. — sessiz geç
+
     def _tutum_guncelle(self, roll: float, pitch: float, yaw: float):
         self._yapay_ufuk.guncelle(roll, pitch)
         self._roll_lbl.setText(f"Roll: {roll:.1f}°")
@@ -881,26 +914,37 @@ class AnaPencere(QMainWindow):
         self._log_satiri.update({"roll": roll, "pitch": pitch, "yaw": yaw})
 
     def _ruzgar_guncelle(self, hiz: float, yon: float):
-        self._ruzgar.guncelle(hiz, yon)
+        # hiz: m/s (MAVLink WIND msg.speed)
+        # Widget km/h gösteriyor — dönüştürerek aktar
+        self._ruzgar.guncelle(hiz * 3.6, yon)
         self._log_satiri.update({"ruzgar_ms": hiz, "ruzgar_yon": yon})
-        hiz_kmh = hiz * 3.6
-        if hiz_kmh >= 60 and not getattr(self, "_ruzgar_kritik_gonderildi", False):
+
+        # EMA filtresi — anlık gust'lardan yanlış alarm önler (α=0.25 ≈ 4 ölçüm)
+        self._ruz_ema = 0.25 * hiz + 0.75 * self._ruz_ema
+        hiz_f = self._ruz_ema   # filtrelenmiş hız (m/s) — eşik karşılaştırmalarında kullan
+
+        if hiz_f >= self._ruz_kritik_ms and not getattr(self, "_ruzgar_kritik_gonderildi", False):
             self._ruzgar_kritik_gonderildi = True
-            self._mesaj_ekle(2, f"KRİTİK RÜZGAR ({hiz_kmh:.0f} km/h)! Güvenli iniş analizi başlatılıyor.")
+            self._mesaj_ekle(2, f"KRİTİK RÜZGAR ({hiz_f*3.6:.0f} km/h)! Güvenli iniş analizi başlatılıyor.")
             if getattr(self, "_en_yakin_guvenli_nokta", None):
-                self._guvenli_inise_git(onay_sor=False)  # Kritik → onaysız
+                self._guvenli_inise_git(onay_sor=False)   # Kritik → onaysız
             else:
-                # Analiz başlat; tamamlanınca otomatik inişe git
                 self._ruzgar_acil_inis_bekliyor = True
                 self._guvenli_inis_baslat()
-        elif hiz_kmh >= 40 and not getattr(self, "_ruzgar_tehlikeli_gonderildi", False):
+        elif hiz_f >= self._ruz_tehlikeli_ms and not getattr(self, "_ruzgar_tehlikeli_gonderildi", False):
             self._ruzgar_tehlikeli_gonderildi = True
-            self._mesaj_ekle(3, f"TEHLİKELİ RÜZGAR ({hiz_kmh:.0f} km/h)! Eve dönüş başlatılıyor.")
-            self._mavlink.mod_degistir(6)  # RTL
-        # Hız normale dönünce bayrakları sıfırla
-        if hiz_kmh < 35:
+            self._mesaj_ekle(3, f"TEHLİKELİ RÜZGAR ({hiz_f*3.6:.0f} km/h)! Eve dönüş başlatılıyor.")
+            self._mavlink.mod_degistir(6)   # RTL
+
+        # Histerezis: hız %85'in altına düşünce bayrakları sıfırla
+        if hiz_f < self._ruz_tehlikeli_ms * 0.85:
             self._ruzgar_tehlikeli_gonderildi = False
             self._ruzgar_kritik_gonderildi   = False
+
+    def _lidar_guncelle(self, mesafe_m: float):
+        """DISTANCE_SENSOR mesajından gelen yüksekliği saklar."""
+        self._guncel_lidar_m = mesafe_m
+        self._log_satiri["lidar_m"] = mesafe_m
 
     def _imu_guncelle(self, imu_no: int, sicaklik: float):
         if 0 <= imu_no < len(self._imu_gosterge):
@@ -1102,7 +1146,7 @@ class AnaPencere(QMainWindow):
                 "durumGoster('Arazi verisi indiriliyor, analiz yapılıyor… (ilk kez ~15 sn)');"
             )
 
-        ruz_ms  = self._log_satiri.get("ruzgar_ms", 0.0) / 3.6   # km/h → m/s
+        ruz_ms  = self._log_satiri.get("ruzgar_ms", 0.0)   # zaten m/s (MAVLink WIND msg.speed)
         ruz_yon = self._log_satiri.get("ruzgar_yon", 0.0)
         self._terrain_thread = TerrainAnalizThread(
             self._guncel_lat, self._guncel_lon, bat,
