@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QLineEdit, QTextEdit, QGridLayout, QHBoxLayout, QVBoxLayout,
     QGroupBox, QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QProgressBar, QMessageBox, QAbstractItemView,
+    QFileDialog,
 )
 from PyQt5.QtCore import Qt, QDateTime, QTimer, QThread, pyqtSignal as Signal
 from PyQt5.QtGui import QFont, QColor
@@ -503,6 +504,9 @@ class AnaPencere(QMainWindow):
         self._son_mod_id   = -1
         self._ruzgar_acil_inis_bekliyor = False
 
+        # Parametre cache (yedekleme için)
+        self._param_cache: dict = {}
+
         # ADSB — yakın hava araçları
         self._adsb_araclar: dict = {}          # {icao: {lat,lon,alt,hdg,callsign,t}}
         self._adsb_uyari_esik_m  = float(_cfg.al("adsb.uyari_mesafe_m", 500.0))
@@ -827,6 +831,16 @@ class AnaPencere(QMainWindow):
         self._param_uygula_btn.clicked.connect(self._param_uygula_tikla)
         araci.addWidget(self._param_uygula_btn)
 
+        self._param_yedekle_btn = QPushButton("💾 Yedekle")
+        self._param_yedekle_btn.setToolTip("İndirilen parametreleri JSON dosyasına kaydet")
+        self._param_yedekle_btn.clicked.connect(self._param_yedekle_tikla)
+        araci.addWidget(self._param_yedekle_btn)
+
+        self._param_geri_yukle_btn = QPushButton("📂 Geri Yükle")
+        self._param_geri_yukle_btn.setToolTip("JSON yedekten parametreleri drone'a gönder")
+        self._param_geri_yukle_btn.clicked.connect(self._param_geri_yukle_tikla)
+        araci.addWidget(self._param_geri_yukle_btn)
+
         araci.addStretch()
 
         araci.addWidget(QLabel("Ara:"))
@@ -1118,6 +1132,7 @@ class AnaPencere(QMainWindow):
     # ── Parametre sinyal alıcıları ────────────────────────────────────────────
 
     def _param_guncelle(self, ad: str, deger: float, alinan: int, toplam: int):
+        self._param_cache[ad] = deger   # yedekleme için cache
         if toplam > 0:
             self._param_progress.setMaximum(toplam)
             self._param_progress.setValue(alinan)
@@ -1250,6 +1265,83 @@ class AnaPencere(QMainWindow):
             self._mesaj_ekle(6, f"Parametre: {ad} = {deger}")
         self._degistirilen_parametreler.clear()
         self._param_bilgi.setText("Değişiklikler gönderildi.")
+
+    def _param_yedekle_tikla(self):
+        """İndirilen parametreleri JSON dosyasına kaydeder."""
+        if not self._param_cache:
+            QMessageBox.warning(
+                self, "Parametre Yok",
+                "Önce 'Parametreleri İndir' ile parametreleri indirin.",
+            )
+            return
+
+        import datetime
+        varsayilan = f"param_yedek_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        dosya, _ = QFileDialog.getSaveFileName(
+            self, "Parametre Yedeği Kaydet", varsayilan,
+            "JSON Dosyası (*.json);;Tüm Dosyalar (*)"
+        )
+        if not dosya:
+            return
+
+        import json as _json
+        cikti = {
+            "_meta": {
+                "tarih":   datetime.datetime.now().isoformat(timespec="seconds"),
+                "baglanti": self._mavlink.baglanti_dizesi,
+                "toplam":  len(self._param_cache),
+            },
+            "parametreler": self._param_cache,
+        }
+        try:
+            with open(dosya, "w", encoding="utf-8") as f:
+                _json.dump(cikti, f, indent=2, ensure_ascii=False)
+            self._mesaj_ekle(4, f"✓ {len(self._param_cache)} parametre yedeklendi → {os.path.basename(dosya)}")
+        except Exception as e:
+            QMessageBox.critical(self, "Kayıt Hatası", str(e))
+
+    def _param_geri_yukle_tikla(self):
+        """JSON yedekten parametreleri drone'a gönderir."""
+        if not self._bagli:
+            QMessageBox.warning(self, "Bağlantı Yok", "Önce drone'a bağlanın.")
+            return
+
+        dosya, _ = QFileDialog.getOpenFileName(
+            self, "Parametre Yedeği Aç", "",
+            "JSON Dosyası (*.json);;Tüm Dosyalar (*)"
+        )
+        if not dosya:
+            return
+
+        import json as _json
+        try:
+            with open(dosya, encoding="utf-8") as f:
+                veri = _json.load(f)
+        except Exception as e:
+            QMessageBox.critical(self, "Okuma Hatası", str(e))
+            return
+
+        parametreler: dict = veri.get("parametreler", veri)
+        meta = veri.get("_meta", {})
+        tarih = meta.get("tarih", "?")
+
+        yanit = QMessageBox.question(
+            self, "Parametreleri Geri Yükle",
+            f"{os.path.basename(dosya)}\n"
+            f"Tarih: {tarih}\n"
+            f"{len(parametreler)} parametre drone'a gönderilsin mi?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if yanit != QMessageBox.Yes:
+            return
+
+        self._mesaj_ekle(6, f"Parametre geri yükleme başlıyor ({len(parametreler)} parametre)…")
+        gonderilen = 0
+        for ad, deger in parametreler.items():
+            self._mavlink.parametre_ayarla(ad, float(deger))
+            gonderilen += 1
+
+        self._mesaj_ekle(4, f"✓ {gonderilen} parametre gönderildi (yeniden başlatma gerekebilir).")
 
     def _harita_yol_temizle(self):
         if HARITA_MEVCUT and hasattr(self, "_harita"):
