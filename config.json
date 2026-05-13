@@ -83,6 +83,16 @@
     "otomatik_inis_onay_sure_s": 0
   },
 
+  "gcs_failsafe": {
+    "_aciklama": "GCS bağlantısı kesilince ArduPilot otomatik RTL yapar",
+    "timeout_s": 10
+  },
+
+  "adsb": {
+    "_aciklama": "ADSB_VEHICLE çakışma uyarısı",
+    "uyari_mesafe_m": 500
+  },
+
   "fence": {
     "_aciklama": "AC_Fence — ihlalde drone'u durdurur",
     "alt_max": 120.0,

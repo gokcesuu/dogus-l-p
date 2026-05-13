@@ -97,6 +97,12 @@ class MAVLinkBaglantisi(QThread):
     ekf_durumu = pyqtSignal(int, float)             # (bayraklar, hata_puani)
     parametre_guncellendi = pyqtSignal(str, float, int, int)  # (ad, deger, indeks, toplam)
     parametre_tamamlandi = pyqtSignal()
+    adsb_guncellendi  = pyqtSignal(int, float, float, float, float, str)
+    # (icao_address, lat_deg, lon_deg, alt_m, heading_deg, callsign)
+    esc_guncellendi   = pyqtSignal(object)
+    # list: [{"motor": 0..7, "rpm": int, "sicaklik": float, "volt": float, "akim": float}, ...]
+    terrain_rapor     = pyqtSignal(float, int, int)
+    # (guncel_yukseklik_m, bekleyen_tile, yuklenen_tile)
 
     def __init__(self, baglanti_dizesi: str = _VARSAYILAN_DIZE,
                  anahtar_dosya: str = None):
@@ -285,6 +291,12 @@ class MAVLinkBaglantisi(QThread):
                 self.ekf_durumu.emit(msg.flags, msg.velocity_variance)
             elif tip == "PARAM_VALUE":
                 self._isle_parametre(msg)
+            elif tip == "ADSB_VEHICLE":
+                self._isle_adsb(msg)
+            elif tip in ("ESC_TELEMETRY_1_TO_4", "ESC_TELEMETRY_5_TO_8"):
+                self._isle_esc(msg, 0 if tip.endswith("1_TO_4") else 4)
+            elif tip == "TERRAIN_REPORT":
+                self._isle_terrain_rapor(msg)
 
     # ------------------------------------------------------------------
     def _isle_hb(self, msg):
@@ -484,6 +496,45 @@ class MAVLinkBaglantisi(QThread):
         for i in range(3):
             if ad == f"IMU{i}_TEMP":
                 self.imu_sicakligi.emit(i, msg.value)
+
+    def _isle_adsb(self, msg):
+        """ADSB_VEHICLE — yakın hava araçlarını bildir."""
+        try:
+            callsign = msg.callsign.strip("\x00").strip() if hasattr(msg, "callsign") else ""
+            lat  = msg.lat / 1e7
+            lon  = msg.lon / 1e7
+            alt  = msg.altitude / 1000.0        # mm → m
+            hdg  = msg.heading / 100.0           # cdeg → deg
+            icao = int(msg.ICAO_address)
+            self.adsb_guncellendi.emit(icao, lat, lon, alt, hdg, callsign)
+        except Exception:
+            pass
+
+    def _isle_esc(self, msg, baslangic: int):
+        """ESC_TELEMETRY_1_TO_4 / 5_TO_8 — motor RPM, sıcaklık, voltaj, akım."""
+        try:
+            motorlar = []
+            for i in range(4):
+                motorlar.append({
+                    "motor":    baslangic + i,
+                    "rpm":      int(msg.rpm[i]),
+                    "sicaklik": msg.temperature[i] / 100.0,  # centidegC → °C
+                    "volt":     msg.voltage[i]    / 100.0,   # cV → V
+                    "akim":     msg.current[i]    / 100.0,   # cA → A
+                })
+            self.esc_guncellendi.emit(motorlar)
+        except Exception:
+            pass
+
+    def _isle_terrain_rapor(self, msg):
+        """TERRAIN_REPORT — terrain follow durumu."""
+        try:
+            yukseklik  = float(msg.current_height)  # AGL metre
+            bekleyen   = int(msg.pending)
+            yuklenen   = int(msg.loaded)
+            self.terrain_rapor.emit(yukseklik, bekleyen, yuklenen)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     def komut_gonder(self, komut_id: int, param1=0, param2=0, param3=0,

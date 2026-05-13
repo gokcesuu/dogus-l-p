@@ -275,6 +275,22 @@ function evNoktasiGuncelle(lat, lon) {
   evMark.bindTooltip('Ev Noktası', {permanent: false});
 }
 
+var adsbKatman = L.layerGroup().addTo(map);
+var adsbMarkers = {};
+function adsbGuncelle(icao, lat, lon, alt, hdg, callsign) {
+  var label = (callsign || icao.toString(16).toUpperCase()) + '\n' + alt + 'm ' + hdg + '°';
+  var icon = L.divIcon({
+    html: '<div style="color:#ff9800;font-size:18px;transform:rotate(' + hdg + 'deg)">✈</div>',
+    iconSize: [20,20], iconAnchor: [10,10], className: ''
+  });
+  if (adsbMarkers[icao]) {
+    adsbMarkers[icao].setLatLng([lat, lon]).setIcon(icon).bindTooltip(label, {permanent:false});
+  } else {
+    adsbMarkers[icao] = L.marker([lat, lon], {icon: icon})
+      .bindTooltip(label, {permanent: false}).addTo(adsbKatman);
+  }
+}
+
 function ucusYolunuTemizle() {
   ucusKoord = [];
   ucusYolu.setLatLngs([]);
@@ -487,6 +503,17 @@ class AnaPencere(QMainWindow):
         self._son_mod_id   = -1
         self._ruzgar_acil_inis_bekliyor = False
 
+        # ADSB — yakın hava araçları
+        self._adsb_araclar: dict = {}          # {icao: {lat,lon,alt,hdg,callsign,t}}
+        self._adsb_uyari_esik_m  = float(_cfg.al("adsb.uyari_mesafe_m", 500.0))
+        self._adsb_son_uyari: dict = {}        # {icao: last_warn_time} debounce
+
+        # ESC telemetri — motor kartı etiketleri (_esc_paneli() tarafından doldurulur)
+        self._esc_lbls: list = []   # [{"rpm": QLabel, "sicaklik": QLabel}, ...]
+
+        # Terrain raporu
+        self._terrain_yukseklik_lbl: "QLabel | None" = None
+
         # Alan iniş kararı — alan_verisi.npz varsa yükle
         self._alan_karar = None
         self._alan_karar_son_uyari = 0.0   # debounce (5 sn)
@@ -522,6 +549,9 @@ class AnaPencere(QMainWindow):
         m.ekf_durumu.connect(self._ekf_guncelle)
         m.parametre_guncellendi.connect(self._param_guncelle)
         m.parametre_tamamlandi.connect(self._param_tamam)
+        m.adsb_guncellendi.connect(self._adsb_guncelle)
+        m.esc_guncellendi.connect(self._esc_guncelle)
+        m.terrain_rapor.connect(self._terrain_rapor_guncelle)
 
     # ── UI ───────────────────────────────────────────────────────────────────
 
@@ -609,6 +639,7 @@ class AnaPencere(QMainWindow):
         sol = QVBoxLayout()
         sol.addWidget(self._yapay_ufuk_paneli())
         sol.addWidget(self._imu_paneli())
+        sol.addWidget(self._esc_paneli())
         ust.addLayout(sol, 2)
 
         # Orta
@@ -644,6 +675,32 @@ class AnaPencere(QMainWindow):
             g = SicaklikGostergesi(i)
             self._imu_gosterge.append(g)
             duz.addWidget(g)
+        return grp
+
+    def _esc_paneli(self) -> QGroupBox:
+        grp = QGroupBox("ESC / Motor")
+        grid = QGridLayout(grp)
+        grid.setHorizontalSpacing(8)
+        baslik_renk = "color:#7eb8e0;"
+        for col, baslik in enumerate(["Motor", "RPM", "Sıcak.", "Volt"]):
+            lbl = QLabel(baslik)
+            lbl.setStyleSheet(baslik_renk)
+            lbl.setAlignment(Qt.AlignCenter)
+            grid.addWidget(lbl, 0, col)
+        self._esc_lbls = []
+        for i in range(4):
+            row = i + 1
+            grid.addWidget(QLabel(f"M{i+1}"), row, 0)
+            rpm_l = QLabel("—")
+            tmp_l = QLabel("—")
+            vlt_l = QLabel("—")
+            for l in (rpm_l, tmp_l, vlt_l):
+                l.setAlignment(Qt.AlignCenter)
+                l.setFont(QFont("Courier New", 9))
+            grid.addWidget(rpm_l, row, 1)
+            grid.addWidget(tmp_l, row, 2)
+            grid.addWidget(vlt_l, row, 3)
+            self._esc_lbls.append({"rpm": rpm_l, "sicaklik": tmp_l, "volt": vlt_l})
         return grp
 
     def _merkez_panel(self) -> QVBoxLayout:
@@ -726,6 +783,17 @@ class AnaPencere(QMainWindow):
         b.clicked.connect(self._ev_yap_tikla)
         ed.addWidget(b)
         duz.addWidget(ev_grp)
+
+        # Terrain raporu satırı
+        terrain_grp = QGroupBox("Terrain / ADSB")
+        tg = QVBoxLayout(terrain_grp)
+        self._terrain_yukseklik_lbl = QLabel("Arazi: —")
+        self._terrain_yukseklik_lbl.setFont(QFont("Courier New", 9))
+        self._adsb_sayac_lbl = QLabel("ADSB: 0 araç")
+        self._adsb_sayac_lbl.setFont(QFont("Courier New", 9))
+        tg.addWidget(self._terrain_yukseklik_lbl)
+        tg.addWidget(self._adsb_sayac_lbl)
+        duz.addWidget(terrain_grp)
 
         duz.addStretch()
         return duz
@@ -858,6 +926,8 @@ class AnaPencere(QMainWindow):
         self._logger.baslat()
         self._log_timer.start()
         self._mesaj_ekle(6, f"Log: {self._logger.csv_yolu()}")
+        # GCS Failsafe — bağlantı kopunca otomatik RTL
+        QTimer.singleShot(2000, self._gcs_failsafe_ayarla)
 
     def _baglanti_kesildi(self):
         self._bagli = False
@@ -1372,6 +1442,110 @@ class AnaPencere(QMainWindow):
             self._mesaj_ekle(4, f"✓ {n} Rally Point ArduPilot'a yüklendi (Katman 2 aktif).")
         else:
             self._mesaj_ekle(3, f"✗ Rally Point yüklenemedi — log'u kontrol edin.")
+
+    # ── GCS Failsafe ─────────────────────────────────────────────────────────
+
+    def _gcs_failsafe_ayarla(self):
+        """
+        Bağlantı kurulduktan 2sn sonra çağrılır.
+        FS_GCS_ENABLE=1 + FS_GCS_TIMEOUT → bağlantı kesilince RTL tetiklenir.
+        """
+        if not self._bagli:
+            return
+        timeout = int(_cfg.al("gcs_failsafe.timeout_s", 10))
+        self._mavlink.parametre_ayarla("FS_GCS_ENABLE",  1.0)
+        self._mavlink.parametre_ayarla("FS_GCS_TIMEOUT", float(timeout))
+        self._mesaj_ekle(6, f"GCS Failsafe aktif — timeout={timeout}s (bağlantı kopunca RTL).")
+
+    # ── ADSB çakışma uyarısı ──────────────────────────────────────────────────
+
+    def _adsb_guncelle(self, icao: int, lat: float, lon: float,
+                       alt: float, heading: float, callsign: str):
+        """ADSB_VEHICLE — yakın hava aracı tespiti ve uyarı."""
+        import math
+        simdi = time.monotonic()
+        self._adsb_araclar[icao] = {
+            "lat": lat, "lon": lon, "alt": alt,
+            "hdg": heading, "callsign": callsign, "t": simdi,
+        }
+
+        # 30sn görmeyenleri temizle
+        eskiler = [k for k, v in self._adsb_araclar.items()
+                   if simdi - v["t"] > 30.0]
+        for k in eskiler:
+            del self._adsb_araclar[k]
+            self._adsb_son_uyari.pop(k, None)
+
+        # Sayaç etiketi güncelle
+        if hasattr(self, "_adsb_sayac_lbl"):
+            n = len(self._adsb_araclar)
+            renk = "#f44336" if n > 0 else "#4caf50"
+            self._adsb_sayac_lbl.setText(f"ADSB: {n} araç")
+            self._adsb_sayac_lbl.setStyleSheet(f"color:{renk};")
+
+        # Mesafe hesapla (Haversine)
+        if self._guncel_lat == 0.0 and self._guncel_lon == 0.0:
+            return
+        R = 6371000.0
+        f1, f2 = math.radians(self._guncel_lat), math.radians(lat)
+        df = math.radians(lat - self._guncel_lat)
+        dl = math.radians(lon  - self._guncel_lon)
+        a  = math.sin(df/2)**2 + math.cos(f1)*math.cos(f2)*math.sin(dl/2)**2
+        mesafe_m = R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+        # Uyarı eşiği ve debounce (30sn)
+        if mesafe_m < self._adsb_uyari_esik_m:
+            son = self._adsb_son_uyari.get(icao, 0.0)
+            if simdi - son >= 30.0:
+                self._adsb_son_uyari[icao] = simdi
+                cs = callsign if callsign else f"ICAO:{icao:06X}"
+                self._mesaj_ekle(2,
+                    f"⚠ ADSB UYARI: {cs}  {mesafe_m:.0f}m  "
+                    f"alt={alt:.0f}m  hdg={heading:.0f}°")
+                QApplication.beep()
+
+        # Haritada göster
+        if HARITA_MEVCUT and hasattr(self, "_harita"):
+            cs_js = (callsign if callsign else f"{icao:06X}").replace("'", "")
+            self._harita.page().runJavaScript(
+                f"adsbGuncelle({icao},{lat},{lon},{alt:.0f},{heading:.0f},'{cs_js}');"
+            )
+
+    # ── ESC telemetrisi ───────────────────────────────────────────────────────
+
+    def _esc_guncelle(self, motorlar: list):
+        """ESC_TELEMETRY — motor RPM, sıcaklık, voltaj etiketlerini günceller."""
+        for m in motorlar:
+            idx = m["motor"]
+            if idx >= len(self._esc_lbls):
+                continue
+            lbls = self._esc_lbls[idx]
+            rpm  = m["rpm"]
+            tmp  = m["sicaklik"]
+            vlt  = m["volt"]
+
+            lbls["rpm"].setText(f"{rpm:5d}")
+
+            # Sıcaklık renk kodu: normal < 60°C, dikkat 60-80°C, kritik 80°C+
+            if tmp >= 80.0:
+                renk = "#f44336"
+                self._mesaj_ekle(3, f"ESC M{idx+1} AŞIRI SICAK: {tmp:.0f}°C!")
+            elif tmp >= 60.0:
+                renk = "#ffc107"
+            else:
+                renk = "#4caf50"
+            lbls["sicaklik"].setText(f"{tmp:.0f}°C")
+            lbls["sicaklik"].setStyleSheet(f"color:{renk};")
+            lbls["volt"].setText(f"{vlt:.1f}V")
+
+    # ── Terrain raporu ────────────────────────────────────────────────────────
+
+    def _terrain_rapor_guncelle(self, yukseklik: float, bekleyen: int, yuklenen: int):
+        """TERRAIN_REPORT — terrain follow yüksekliğini durum çubuğuna yazar."""
+        if self._terrain_yukseklik_lbl is not None:
+            self._terrain_yukseklik_lbl.setText(
+                f"Arazi: {yukseklik:.1f}m  ▼{bekleyen}bkl ✓{yuklenen}yük"
+            )
 
     # ── AC_Fence yükleme ──────────────────────────────────────────────────────
 
