@@ -310,34 +310,12 @@ class PiKararDongusu:
         tm = self._tm
 
         try:
-            # alan_inis_karar'daki _noktalar listesine eriş
-            noktalar = self._alan_karar._noktalar
-            guvenli = [n for n in noktalar if n.get("durum") == "GUVENLI"]
-            if not guvenli:
-                return None
-
-            # Rüzgar gölgesi skoru: drone'dan rüzgar yönünün tersine olan noktalar tercih edilir
-            # Rüzgar yönü: rüzgar nereden EsiYOR (meteoroloji standardı)
-            # Leeward = rüzgarın gideceği yön = yon + 180
-            ruz_hiz  = tm.ruzgar_ema
-            ruz_yon  = tm.ruzgar_yon   # rüzgarın estiği yön (°)
-            leeward  = (ruz_yon + 180) % 360
-
-            def skor(nokta):
-                # Mesafe cezası (m)
-                d = _haversine(tm.lat, tm.lon, nokta["lat"], nokta["lon"])
-                # Yön ödülü: leeward tarafına yakın noktaları tercih et
-                nokta_yon = math.degrees(math.atan2(
-                    nokta["lon"] - tm.lon,
-                    nokta["lat"] - tm.lat,
-                )) % 360
-                yon_fark = abs((nokta_yon - leeward + 180) % 360 - 180)
-                # Rüzgar zayıfsa yön ödülü ihmal et
-                ruzgar_agirlik = min(ruz_hiz / _RUZ_KRITIK, 1.0)
-                yon_ceza = ruzgar_agirlik * (yon_fark / 180.0) * 200   # maks 200m eşdeğer
-                return d + yon_ceza + nokta["egim"] * 20               # eğim cezası
-
-            en_iyi = min(guvenli, key=skor)
+            en_iyi = self._alan_karar.en_iyi_nokta(
+                tm.lat,
+                tm.lon,
+                ruzgar_ms=tm.ruzgar_ema,
+                ruzgar_yonu=tm.ruzgar_yon,
+            )
             return en_iyi
 
         except Exception as e:

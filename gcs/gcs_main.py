@@ -231,6 +231,7 @@ HARITA_HTML = """<!DOCTYPE html>
   <button onclick="window.location.href='gcs://analiz-temizle'">Analizi Temizle</button>
   <button class="red" id="inisBtn" disabled onclick="window.location.href='gcs://guvenli-inise-git'">🚨 Güvenli İnişe Git</button>
   <button id="rallyBtn" style="background:#1a3c6a;border-color:#2a5c9a;" onclick="window.location.href='gcs://rally-yukle'" title="En iyi 5 güvenli noktayı ArduPilot Rally Point olarak yükle (Katman 2)">📡 Rally Yükle</button>
+  <button id="fenceBtn" style="background:#2a1a4a;border-color:#6a3a9a;" onclick="window.location.href='gcs://fence-yukle'" title="Uçuş alanı bounding box'ından AC_Fence polygon yükle — ihlalde RTL">🔒 Fence Yükle</button>
   <span id="konum">Konum: --</span>
 </div>
 <div id="durum"></div>
@@ -351,6 +352,8 @@ if HARITA_MEVCUT:
                     self._gcs._guvenli_inise_git()
                 elif eylem == 'rally-yukle':
                     self._gcs._rally_yukle_baslat()
+                elif eylem == 'fence-yukle':
+                    self._gcs._fence_yukle_baslat()
                 return False  # gezinme yapma
             return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
@@ -381,6 +384,32 @@ class _RallyYuklemeThread(QThread):
             )
             basarili = rally_yukle(noktalar, baglanti_dizesi=self.dize)
             self.tamamlandi.emit(basarili, len(noktalar))
+        except Exception as e:
+            self.hata.emit(str(e))
+
+
+class _FenceYuklemeThread(QThread):
+    """alan_verisi.npz bounds'ından AC_Fence polygon arka planda yükler."""
+    tamamlandi = Signal(bool)   # basarili
+    hata       = Signal(str)
+
+    def __init__(self, npz_dosya: str, baglanti_dizesi: str,
+                 alt_max: float = 120.0, fence_action: int = 1):
+        super().__init__()
+        self.npz          = npz_dosya
+        self.dize         = baglanti_dizesi
+        self.alt_max      = alt_max
+        self.fence_action = fence_action
+
+    def run(self):
+        try:
+            from fence_yukle import fence_yukle_npz
+            basarili = fence_yukle_npz(
+                self.npz, self.dize,
+                alt_max=self.alt_max,
+                fence_action=self.fence_action,
+            )
+            self.tamamlandi.emit(basarili)
         except Exception as e:
             self.hata.emit(str(e))
 
@@ -928,7 +957,12 @@ class AnaPencere(QMainWindow):
         # Alan iniş kararı — npz varsa her GPS güncellemesinde anlık sorgula
         if self._alan_karar is not None and lat != 0.0:
             try:
-                karar = self._alan_karar.inis_karari(lat, lon, self._guncel_lidar_m)
+                ruz_ms = self._log_satiri.get("ruzgar_ms", 0.0)
+                ruz_yon = self._log_satiri.get("ruzgar_yon", 0.0)
+                karar = self._alan_karar.inis_karari(
+                    lat, lon, self._guncel_lidar_m,
+                    ruzgar_ms=ruz_ms, ruzgar_yonu=ruz_yon,
+                )
                 if not karar.inebilir:
                     simdi = time.monotonic()
                     if simdi - self._alan_karar_son_uyari >= 5.0:
@@ -1338,6 +1372,55 @@ class AnaPencere(QMainWindow):
             self._mesaj_ekle(4, f"✓ {n} Rally Point ArduPilot'a yüklendi (Katman 2 aktif).")
         else:
             self._mesaj_ekle(3, f"✗ Rally Point yüklenemedi — log'u kontrol edin.")
+
+    # ── AC_Fence yükleme ──────────────────────────────────────────────────────
+
+    def _fence_yukle_baslat(self):
+        """
+        alan_verisi.npz'deki bounding box'tan AC_Fence polygon oluşturur ve
+        ArduPilot'a yükler.  Ayrı bir QThread'de çalışır.
+        FENCE_ENABLE=1, FENCE_ACTION=1 (RTL) otomatik set edilir.
+        """
+        if not self._bagli:
+            QMessageBox.warning(self, "Bağlantı Yok", "Önce drone'a bağlanın.")
+            return
+
+        npz = os.path.join(os.path.dirname(__file__), "alan_verisi.npz")
+        if not os.path.isfile(npz):
+            npz = "alan_verisi.npz"
+        if not os.path.isfile(npz):
+            QMessageBox.warning(
+                self, "Dosya Yok",
+                "alan_verisi.npz bulunamadı.\n"
+                "Önce 'ucus_alani_hazirla.py' ile alanı hazırlayın.",
+            )
+            return
+
+        alt_max      = float(_cfg.al("fence.alt_max", 120.0))
+        fence_action = int(_cfg.al("fence.action", 1))
+        dize         = self._mavlink.baglanti_dizesi
+        self._mesaj_ekle(6, f"AC_Fence yükleme başlıyor ({dize}, "
+                            f"alt_max={alt_max}m, eylem={fence_action})…")
+
+        self._fence_thread = _FenceYuklemeThread(
+            npz, dize, alt_max=alt_max, fence_action=fence_action
+        )
+        self._fence_thread.tamamlandi.connect(self._fence_yukle_tamamlandi)
+        self._fence_thread.hata.connect(
+            lambda m: self._mesaj_ekle(3, f"Fence hata: {m}")
+        )
+        self._fence_thread.start()
+
+    def _fence_yukle_tamamlandi(self, basarili: bool):
+        if basarili:
+            self._mesaj_ekle(4, "✓ AC_Fence ArduPilot'a yüklendi — FENCE_ENABLE=1 (RTL aktif).")
+            if HARITA_MEVCUT and hasattr(self, "_harita"):
+                self._harita.page().runJavaScript(
+                    "document.getElementById('fenceBtn').style.background='#1a4a1a';"
+                    "document.getElementById('fenceBtn').style.borderColor='#3a9a3a';"
+                )
+        else:
+            self._mesaj_ekle(3, "✗ AC_Fence yüklenemedi — log'u kontrol edin.")
 
     # ── Genel ────────────────────────────────────────────────────────────────
 

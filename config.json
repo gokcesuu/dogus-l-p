@@ -53,6 +53,13 @@
     "osm_zaman_asimi": 10
   },
 
+  "alan_inis": {
+    "max_mesafe_m": 3000,
+    "mesafe_agirlik": 0.45,
+    "egim_agirlik": 0.35,
+    "ruzgar_agirlik": 0.20
+  },
+
   "imu_isi": {
     "hedef_sicaklik": 35.0,
     "alt_esik": 30.0,
@@ -74,5 +81,24 @@
     "min_azalma_m": 20,
     "batarya_kritik_yuzde": 15,
     "otomatik_inis_onay_sure_s": 0
+  },
+
+  "fence": {
+    "_aciklama": "AC_Fence — ihlalde drone'u durdurur",
+    "alt_max": 120.0,
+    "action": 1,
+    "_action_aciklama": "0=sadece mesaj, 1=RTL, 2=LAND, 3=Smart RTL"
+  },
+
+  "copernicus": {
+    "_aciklama": "Copernicus Data Space Ecosystem — dataspace.copernicus.eu hesabı gerekli",
+    "kullanici_adi": "",
+    "sifre": "",
+    "s3_endpoint": "https://eodata.dataspace.copernicus.eu",
+    "s3_access_key": "",
+    "s3_secret_key": "",
+    "stac_url": "https://stac.dataspace.copernicus.eu",
+    "dem_koleksiyonu": "cop-dem-glo-30",
+    "token_url": "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
   }
 }

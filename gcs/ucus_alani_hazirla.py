@@ -569,6 +569,17 @@ def main():
     parser.add_argument("--spacing",     type=int, default=30,
                         help="Terrain DAT grid aralığı metre (varsayılan=30, "
                              "ArduPilot TERRAIN_SPACING ile eşleşmeli)")
+    parser.add_argument("--fence-yukle", default="", metavar="BAGLANTI",
+                        dest="fence_yukle",
+                        help="Bounding box'tan AC_Fence yükle "
+                             "(örn: --fence-yukle tcp:127.0.0.1:5762)")
+    parser.add_argument("--fence-alt-max", type=float, default=120.0,
+                        dest="fence_alt_max",
+                        help="Fence maksimum irtifası — metre AGL (varsayılan=120)")
+    parser.add_argument("--fence-eylem",   type=int, default=1,
+                        dest="fence_eylem",
+                        help="Fence ihlal eylemi: 0=mesaj 1=RTL(varsayılan) "
+                             "2=LAND 3=SmartRTL")
     args = parser.parse_args()
 
     _bagimlilik_kontrol()
@@ -612,11 +623,29 @@ def main():
                          spacing_m=args.spacing,
                          cikti_klas=args.terrain_dat)
 
+    # 9 — AC_Fence yükleme (opsiyonel)
+    if args.fence_yukle:
+        from fence_yukle import dikdortgen_cit, fence_yukle
+        print(f"\n[Fence] AC_Fence yükleniyor → {args.fence_yukle}")
+        noktalar_fence = dikdortgen_cit(lat_min, lat_max, lon_min, lon_max)
+        fence_basarili = fence_yukle(
+            noktalar_fence,
+            baglanti_dizesi=args.fence_yukle,
+            alt_max=args.fence_alt_max,
+            fence_action=args.fence_eylem,
+        )
+        if fence_basarili:
+            print("[Fence] ✓ AC_Fence ArduPilot'a yüklendi — FENCE_ENABLE=1")
+        else:
+            print("[Fence] ✗ AC_Fence yüklenemedi — bağlantıyı kontrol edin.")
+
     print("\n" + "=" * 62)
     print("  Hazırlık tamamlandı.")
     print(f"  NPZ → {args.cikti}  (AlanInisKarar + GCS terrain server)")
     if args.terrain_dat:
         print(f"  DAT → {args.terrain_dat}/  (SD kart APM/TERRAIN/ klasörüne kopyala)")
+    if args.fence_yukle:
+        print(f"  Fence → {args.fence_yukle}  (FENCE_ENABLE=1, eylem={args.fence_eylem})")
     print("=" * 62)
 
 
