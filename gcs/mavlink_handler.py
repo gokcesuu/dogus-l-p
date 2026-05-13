@@ -10,7 +10,11 @@ import time
 import socket
 import struct
 import threading
+import math
 import os
+import json
+
+import numpy as np
 
 try:
     from sifreleme import SifreliKanal, PaketToplama, anahtari_yukle
@@ -118,6 +122,11 @@ class MAVLinkBaglantisi(QThread):
         self._parametreler: dict[str, float] = {}
         self._param_toplam = 0
         self._param_alinan = 0
+
+        # Terrain server — alan_verisi.npz varsa DEM yükle
+        self._terrain_dem       = None   # float32 yükseklik array'i
+        self._terrain_transform = None   # rasterio Affine (veya tuple)
+        self._terrain_yukle()
 
     @property
     def son_heartbeat_zamani(self) -> float:
@@ -260,6 +269,8 @@ class MAVLinkBaglantisi(QThread):
                 self._isle_ruzgar(msg)
             elif tip == "DISTANCE_SENSOR":
                 self._isle_lidar(msg)
+            elif tip == "TERRAIN_REQUEST":
+                self._isle_terrain_request(msg)
             elif tip == "SCALED_IMU":
                 self._isle_imu_sicaklik(msg, 0)
             elif tip == "SCALED_IMU2":
@@ -328,6 +339,127 @@ class MAVLinkBaglantisi(QThread):
         if msg.current_distance < 65535:
             mesafe_m = msg.current_distance / 100.0
             self.lidar_guncellendi.emit(mesafe_m)
+
+    # ── Terrain server ────────────────────────────────────────────────────────
+
+    def _terrain_yukle(self):
+        """
+        alan_verisi.npz içindeki 'dem' array'ini yükler.
+        ucus_alani_hazirla.py v2 ile üretilen NPZ bu array'i içerir.
+        """
+        for npz_yol in ("alan_verisi.npz",
+                        os.path.join(os.path.dirname(__file__), "alan_verisi.npz")):
+            if not os.path.isfile(npz_yol):
+                continue
+            try:
+                data = np.load(npz_yol, allow_pickle=True)
+                if "dem" not in data:
+                    break   # Eski format — terrain server desteklenmiyor
+                self._terrain_dem = data["dem"].astype(np.float32)
+                t = data["transform"]
+                # Affine tuple (a, b, c, d, e, f) olarak sakla
+                self._terrain_transform = tuple(float(x) for x in t)
+                print(f"[TerrainServer] DEM yüklendi: {self._terrain_dem.shape}  ({npz_yol})")
+                break
+            except Exception as e:
+                print(f"[TerrainServer] DEM yüklenemedi: {e}")
+                break
+
+    def terrain_dem_yenile(self, npz_yol: str = "alan_verisi.npz"):
+        """GCS'ten çağrılabilir — yeni NPZ yüklendiğinde terrain server'ı güncelle."""
+        try:
+            data = np.load(npz_yol, allow_pickle=True)
+            if "dem" in data:
+                self._terrain_dem = data["dem"].astype(np.float32)
+                t = data["transform"]
+                self._terrain_transform = tuple(float(x) for x in t)
+                print(f"[TerrainServer] DEM yenilendi: {self._terrain_dem.shape}")
+        except Exception as e:
+            print(f"[TerrainServer] Yenileme hatası: {e}")
+
+    def _terrain_yukseklik(self, lat: float, lon: float) -> int:
+        """
+        DEM array'inden koordinat bazlı yükseklik okur.
+        Döndürür: int16 yükseklik (metre), bulunamazsa 0.
+        """
+        if self._terrain_dem is None or self._terrain_transform is None:
+            return 0
+        a, b, c, d, e, f = self._terrain_transform
+        # Affine ters dönüşüm: (lon, lat) → (col, row)
+        det = a * e - b * d
+        if abs(det) < 1e-15:
+            return 0
+        col = (e * (lon - c) - b * (lat - f)) / det
+        row = (a * (lat - f) - d * (lon - c)) / det
+        r, c_ = int(row), int(col)
+        dem = self._terrain_dem
+        if 0 <= r < dem.shape[0] and 0 <= c_ < dem.shape[1]:
+            v = dem[r, c_]
+            if not math.isnan(v):
+                return int(max(-32768, min(32767, v)))
+        return 0
+
+    def _isle_terrain_request(self, msg):
+        """
+        ArduPilot'un TERRAIN_REQUEST mesajına TERRAIN_DATA ile cevap verir.
+
+        Protokol:
+          TERRAIN_REQUEST (133):
+            lat          – SW corner lat (degE7)
+            lon          – SW corner lon (degE7)
+            grid_spacing – metre cinsinden nokta aralığı
+            mask         – 64-bit bitmask; her bit bir 4×4 bloku temsil eder
+
+          Her bit i için:
+            row = i // 8,  col = i % 8   (8×8 blok grid)
+            blok SW corner'ı = (base_lat + row*4*spacing, base_lon + col*4*spacing)
+            16 int16 yükseklik değeri → TERRAIN_DATA (134) gönder
+        """
+        if self._terrain_dem is None or self._baglanti is None:
+            return
+
+        base_lat_deg  = msg.lat / 1e7
+        base_lon_deg  = msg.lon / 1e7
+        spacing_m     = int(msg.grid_spacing)
+        mask          = int(msg.mask)
+
+        lat_m_per_deg = 111320.0
+
+        for bit in range(64):
+            if not (mask >> bit) & 1:
+                continue
+
+            blok_row = bit // 8
+            blok_col = bit % 8
+
+            # Blok SW corner
+            blok_lat = base_lat_deg + blok_row * 4 * spacing_m / lat_m_per_deg
+            lon_m_per_deg = lat_m_per_deg * math.cos(math.radians(blok_lat))
+            blok_lon = (base_lon_deg + blok_col * 4 * spacing_m / lon_m_per_deg
+                        if lon_m_per_deg > 0 else base_lon_deg)
+
+            # 4×4 = 16 yükseklik noktası örnekle
+            data = []
+            for i in range(4):
+                for j in range(4):
+                    pt_lat = blok_lat + i * spacing_m / lat_m_per_deg
+                    pt_lon = (blok_lon + j * spacing_m / lon_m_per_deg
+                              if lon_m_per_deg > 0 else blok_lon)
+                    data.append(self._terrain_yukseklik(pt_lat, pt_lon))
+
+            # TERRAIN_DATA gönder
+            try:
+                self._baglanti.mav.terrain_data_send(
+                    int(blok_lat * 1e7),   # lat degE7
+                    int(blok_lon * 1e7),   # lon degE7
+                    spacing_m,             # grid_spacing
+                    bit,                   # gridbit
+                    data,                  # 16× int16
+                )
+            except Exception:
+                pass   # MAVLink versiyonu desteklemiyorsa sessiz geç
+
+    # ── IMU / Parametre ───────────────────────────────────────────────────────
 
     def _isle_imu_sicaklik(self, msg, imu_no: int):
         if hasattr(msg, "temperature"):

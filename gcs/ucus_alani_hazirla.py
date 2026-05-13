@@ -1,485 +1,623 @@
 """
-ucus_alani_hazirla.py
+ucus_alani_hazirla.py  —  v2 (AWS S3 anonim erişim)
 Doğuş Üniversitesi LÖP — Uçuş Öncesi Alan Hazırlama Scripti
 
 Uçuştan ÖNCE bir kez çalıştırılır:
-  1. Copernicus Data Space'ten GLO-30 DEM indir (resmi S3 API)
-  2. Eğim haritası hesapla (Horn yöntemi)
-  3. Güvenli noktaları otomatik tespit et (eğim ≤ 5°)
-  4. alan_verisi.npz dosyasına yaz
-
-Uçuş anında network/hesaplama yok — sadece lookup.
+  1. Copernicus GLO-30 DEM'i AWS S3'ten indir  ← kimlik bilgisi GEREKMİYOR
+  2. Eğim haritası hesapla (Horn yöntemi, numpy vektörize)
+  3. Güvenli noktaları otomatik tespit et (eğim ≤ 5°, OSM engel maskesi opsiyonel)
+  4. alan_verisi.npz  → AlanInisKarar tarafından uçuş anında kullanılır
+  5. ArduPilot terrain .DAT tile'ları üret  → SD karta kopyala (opsiyonel)
 
 Kullanım:
+    # Temel — kimlik bilgisi YOK
+    python ucus_alani_hazirla.py --alan 40.9 41.1 28.8 29.0
+
+    # Tüm seçenekler
     python ucus_alani_hazirla.py \
-        --config ../config.json \
         --alan 40.9 41.1 28.8 29.0 \
-        --cikti alan_verisi.npz --gorsel
+        --cikti alan_verisi.npz \
+        --dem-dosya alan_dem.tif \
+        --adim 5 \
+        --gorsel \
+        --osm \
+        --terrain-dat terrain_sd/ \
+        --spacing 30
 
-    # Ya da kimlik bilgisi doğrudan:
-    python ucus_alani_hazirla.py \
-        --kullanici ad@mail.com --sifre GİZLİ \
-        --s3-key ACCESS --s3-secret SECRET \
-        --alan 40.9 41.1 28.8 29.0 --gorsel
+Gereksinimler:
+    pip install boto3 rasterio numpy
 
-Copernicus Hesabı:
-    1. https://dataspace.copernicus.eu adresinden ücretsiz kayıt
-    2. User Settings → S3 Access → yeni anahtar oluştur
-    3. config.json'a kullanici_adi, sifre, s3_access_key, s3_secret_key yaz
+İsteğe bağlı:
+    pip install overpy matplotlib
 """
 
 import os
 import sys
 import json
+import math
+import struct
 import argparse
 import tempfile
+import shutil
 import numpy as np
-import requests
 
-try:
-    import rasterio
-    from rasterio.transform import from_bounds
-    from rasterio.merge import merge as rasterio_merge
-    RASTERIO_MEVCUT = True
-except ImportError:
-    RASTERIO_MEVCUT = False
+# ── Bağımlılık kontrolleri ────────────────────────────────────────────────────
 
 try:
     import boto3
+    from botocore import UNSIGNED
     from botocore.client import Config as BotoConfig
     BOTO3_MEVCUT = True
 except ImportError:
     BOTO3_MEVCUT = False
 
 try:
-    from pystac_client import Client as StacClient
-    PYSTAC_MEVCUT = True
+    import rasterio
+    from rasterio.merge import merge as rasterio_merge
+    RASTERIO_MEVCUT = True
 except ImportError:
-    PYSTAC_MEVCUT = False
+    RASTERIO_MEVCUT = False
+
+try:
+    import overpy as _overpy
+    OVERPY_MEVCUT = True
+except ImportError:
+    OVERPY_MEVCUT = False
 
 try:
     import matplotlib.pyplot as plt
+    import matplotlib.colors as mc
     MATPLOTLIB_MEVCUT = True
 except ImportError:
     MATPLOTLIB_MEVCUT = False
 
 # ── Sabitler ─────────────────────────────────────────────────────────────────
-GUVENLI_EGIM = 5.0
-RISKLI_EGIM  = 15.0
-PIKSEL_BOYUT = 30.0   # GLO-30 piksel boyutu (metre)
 
-COPERNICUS_TOKEN_URL = (
-    "https://identity.dataspace.copernicus.eu"
-    "/auth/realms/CDSE/protocol/openid-connect/token"
-)
-COPERNICUS_S3_ENDPOINT = "https://eodata.dataspace.copernicus.eu"
-COPERNICUS_STAC_URL    = "https://stac.dataspace.copernicus.eu"
-COPERNICUS_DEM_KOLEKSIYON = "cop-dem-glo-30"
+GUVENLI_EGIM  = 5.0    # derece
+RISKLI_EGIM   = 15.0   # derece
+PIKSEL_M      = 30.0   # GLO-30 nominal piksel boyutu (metre)
 
+# AWS S3 — anonim erişim, kayıt gerekmez
+# https://copernicus-dem-30m.s3.amazonaws.com/readme.html
+AWS_BUCKET_30M = "copernicus-dem-30m"
 
-# ── 1. Kimlik doğrulama ───────────────────────────────────────────────────────
-
-def token_al(kullanici: str, sifre: str, token_url: str = COPERNICUS_TOKEN_URL) -> str:
-    """
-    Copernicus Data Space OAuth2 token alır.
-    Token her ~10 dakikada bir yenilenmeli — bu script tek seferlik kullanım için yeterli.
-    """
-    print("Copernicus kimlik doğrulaması yapılıyor...")
-    r = requests.post(
-        token_url,
-        data={
-            "client_id":  "cdse-public",
-            "grant_type": "password",
-            "username":   kullanici,
-            "password":   sifre,
-        },
-        timeout=30,
-    )
-    if r.status_code != 200:
-        raise RuntimeError(
-            f"Token alınamadı ({r.status_code}): {r.text[:300]}\n"
-            "→ Kullanıcı adı/şifreyi config.json'da kontrol edin."
-        )
-    token = r.json().get("access_token")
-    if not token:
-        raise RuntimeError("Token yanıtında 'access_token' bulunamadı.")
-    print("  Token alındı.")
-    return token
+# OSM engel tipleri
+_OSM_FILTRELER = [
+    '"building"', '"landuse"="forest"', '"natural"="wood"',
+    '"natural"="water"', '"waterway"~"river|canal|stream"',
+    '"landuse"="residential"', '"landuse"="industrial"', '"aeroway"',
+]
+OSM_ZAMAN_ASIMI = 15
 
 
-def s3_istemci_olustur(
-    s3_access_key: str,
-    s3_secret_key: str,
-    s3_endpoint: str = COPERNICUS_S3_ENDPOINT,
-):
-    """
-    Copernicus S3 uyumlu nesne deposuna boto3 istemcisi oluşturur.
-    Anahtarlar: dataspace.copernicus.eu → User Settings → S3 Access
-    """
+# ── 1. AWS S3 anonim indirme ──────────────────────────────────────────────────
+
+def _s3_anonim():
+    """Kimlik bilgisi gerektirmeyen boto3 S3 istemcisi."""
     if not BOTO3_MEVCUT:
         raise ImportError("pip install boto3")
     return boto3.client(
         "s3",
-        endpoint_url=s3_endpoint,
-        aws_access_key_id=s3_access_key,
-        aws_secret_access_key=s3_secret_key,
-        config=BotoConfig(signature_version="s3v4"),
-        region_name="default",
+        config=BotoConfig(signature_version=UNSIGNED),
+        region_name="eu-central-1",
     )
 
 
-# ── 2. STAC ile tile arama ────────────────────────────────────────────────────
-
-def tile_listesi_bul(
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
-    stac_url: str = COPERNICUS_STAC_URL,
-    koleksiyon: str = COPERNICUS_DEM_KOLEKSIYON,
-) -> list:
+def _tile_prefix(lat_floor: int, lon_floor: int) -> str:
     """
-    STAC API ile verilen bounding box'ı kapsayan GLO-30 tile'larını bulur.
-    Her tile: {'item_id': ..., 's3_path': ..., 'bbox': ...}
+    Taban lat/lon → tile prefix.
+    GLO-30 bucket adlandırması:
+      s3://copernicus-dem-30m/Copernicus_DSM_COG_10_N41_00_E028_00_DEM/
     """
-    if not PYSTAC_MEVCUT:
-        raise ImportError("pip install pystac-client")
+    lh = "N" if lat_floor >= 0 else "S"
+    oh = "E" if lon_floor >= 0 else "W"
+    return (f"Copernicus_DSM_COG_10_{lh}{abs(lat_floor):02d}_00"
+            f"_{oh}{abs(lon_floor):03d}_00_DEM")
 
-    print(f"STAC tile araması: [{lat_min},{lat_max}] x [{lon_min},{lon_max}]")
-    katalog = StacClient.open(stac_url)
 
-    arama = katalog.search(
-        collections=[koleksiyon],
-        bbox=[lon_min, lat_min, lon_max, lat_max],
-        max_items=50,
-    )
-
+def _gereken_tileler(lat_min, lat_max, lon_min, lon_max) -> list:
+    """Bounding box'ı kapsayan 1°×1° tile (lat_floor, lon_floor) listesi."""
     tileler = []
-    for item in arama.items():
-        # GLO-30 asset anahtarı genellikle "data" veya "dem"
-        asset = item.assets.get("data") or item.assets.get("dem")
-        if asset is None:
-            # Tüm asset anahtarlarından ilkini dene
-            asset = next(iter(item.assets.values()), None)
-        if asset is None:
-            continue
-
-        href = asset.href  # s3://eodata/... veya https://...
-        tileler.append({
-            "item_id": item.id,
-            "href":    href,
-            "bbox":    item.bbox,
-        })
-
-    print(f"  {len(tileler)} tile bulundu.")
-    if not tileler:
-        raise RuntimeError(
-            "Verilen koordinatlara ait tile bulunamadı. "
-            "Bounding box doğru mu?"
-        )
+    for lat in range(int(math.floor(lat_min)), int(math.ceil(lat_max))):
+        for lon in range(int(math.floor(lon_min)), int(math.ceil(lon_max))):
+            tileler.append((lat, lon))
     return tileler
 
-
-# ── 3. S3'ten indirme ─────────────────────────────────────────────────────────
-
-def _s3_yolu_ayristir(href: str):
-    """
-    's3://bucket/key/path.tif' → ('bucket', 'key/path.tif')
-    'https://eodata.dataspace.../path' → ('eodata', 'path')
-    """
-    if href.startswith("s3://"):
-        parca = href[5:].split("/", 1)
-        return parca[0], parca[1]
-    # HTTPS href: endpoint'ten sonraki kısmı al
-    # https://eodata.dataspace.copernicus.eu/Copernicus/DEM/.../file.tif
-    idx = href.find("/Copernicus")
-    if idx == -1:
-        idx = href.index("/", 8)          # https:// sonrası ilk /
-    return "eodata", href[idx + 1:]       # bucket=eodata, key=...
-
-
-def tile_indir(s3, href: str, hedef_dosya: str):
-    """Tek bir tile'ı S3'ten indirir."""
-    bucket, key = _s3_yolu_ayristir(href)
-    print(f"  İndiriliyor: {os.path.basename(key)}")
-    s3.download_file(bucket, key, hedef_dosya)
-
-
-# ── 4. Birden fazla tile'ı birleştir ─────────────────────────────────────────
 
 def dem_indir(
     lat_min: float, lat_max: float,
     lon_min: float, lon_max: float,
-    s3_access_key: str,
-    s3_secret_key: str,
-    kullanici: str = "",
-    sifre: str = "",
-    s3_endpoint: str = COPERNICUS_S3_ENDPOINT,
-    stac_url: str    = COPERNICUS_STAC_URL,
-    koleksiyon: str  = COPERNICUS_DEM_KOLEKSIYON,
-    cikti: str       = "alan_dem.tif",
+    cikti:   str = "alan_dem.tif",
 ) -> str:
     """
-    Copernicus GLO-30 DEM'i indirir, gerekirse tile'ları birleştirir.
-    Çıktı: GeoTIFF dosyası (dem_oku() ile okunabilir).
+    Copernicus GLO-30 DEM'i AWS S3'ten anonim olarak indirir.
+    Birden fazla 1°×1° tile gerekiyorsa birleştirir (mosaic).
+    Döndürür: GeoTIFF dosya yolu.
     """
     if not RASTERIO_MEVCUT:
         raise ImportError("pip install rasterio")
-    if not BOTO3_MEVCUT:
-        raise ImportError("pip install boto3")
-    if not PYSTAC_MEVCUT:
-        raise ImportError("pip install pystac-client")
 
-    # S3 istemcisi (token gerekmez, doğrudan S3 anahtarıyla)
-    s3 = s3_istemci_olustur(s3_access_key, s3_secret_key, s3_endpoint)
-
-    # Tile listesi bul
-    tileler = tile_listesi_bul(lat_min, lat_max, lon_min, lon_max, stac_url, koleksiyon)
+    s3 = _s3_anonim()
+    tileler = _gereken_tileler(lat_min, lat_max, lon_min, lon_max)
+    print(f"[DEM] {len(tileler)} tile gerekiyor  "
+          f"BB: [{lat_min},{lat_max}] × [{lon_min},{lon_max}]")
 
     with tempfile.TemporaryDirectory(prefix="lop_dem_") as tmp:
         indirilen = []
-        for i, tile in enumerate(tileler):
-            hedef = os.path.join(tmp, f"tile_{i:03d}.tif")
-            tile_indir(s3, tile["href"], hedef)
-            indirilen.append(hedef)
+        for lat_f, lon_f in tileler:
+            prefix   = _tile_prefix(lat_f, lon_f)
+            s3_key   = f"{prefix}/{prefix}.tif"
+            yol      = os.path.join(tmp, f"{prefix}.tif")
+
+            print(f"  ↓  s3://{AWS_BUCKET_30M}/{s3_key}")
+            try:
+                s3.download_file(AWS_BUCKET_30M, s3_key, yol)
+                indirilen.append(yol)
+            except Exception as e:
+                print(f"  ⚠  Tile indirilemedi ({prefix}): {e}")
+
+        if not indirilen:
+            raise RuntimeError(
+                "Hiç tile indirilemedi. Koordinatları ve internet bağlantısını kontrol et.\n"
+                "Not: Armenia ve Azerbaijan tile'ları kamuya açık değil."
+            )
 
         if len(indirilen) == 1:
-            # Tek tile → doğrudan kopyala
-            import shutil
             shutil.copy2(indirilen[0], cikti)
         else:
-            # Birden fazla tile → birleştir (mosaic)
-            print(f"  {len(indirilen)} tile birleştiriliyor (mosaic)...")
-            acik_dosyalar = [rasterio.open(f) for f in indirilen]
+            print(f"  ⚙  {len(indirilen)} tile birleştiriliyor (mosaic)…")
+            aciklar = [rasterio.open(f) for f in indirilen]
             try:
-                mozaik, mozaik_transform = rasterio_merge(acik_dosyalar)
-                profil = acik_dosyalar[0].profile.copy()
-                profil.update({
-                    "height":    mozaik.shape[1],
-                    "width":     mozaik.shape[2],
-                    "transform": mozaik_transform,
-                })
+                mozaik, mozaik_tf = rasterio_merge(aciklar)
+                profil = aciklar[0].profile.copy()
+                profil.update(height=mozaik.shape[1],
+                              width=mozaik.shape[2],
+                              transform=mozaik_tf)
                 with rasterio.open(cikti, "w", **profil) as dst:
                     dst.write(mozaik)
             finally:
-                for f in acik_dosyalar:
+                for f in aciklar:
                     f.close()
 
-    boyut_kb = os.path.getsize(cikti) // 1024
-    print(f"  Kaydedildi: {cikti} ({boyut_kb} KB)")
+    print(f"  ✓  DEM kaydedildi: {cikti}  ({os.path.getsize(cikti)//1024} KB)")
     return cikti
 
 
-# ── 5. DEM okuma ──────────────────────────────────────────────────────────────
+# ── 2. DEM okuma ──────────────────────────────────────────────────────────────
 
 def dem_oku(dem_dosya: str):
+    """GeoTIFF → (dem_float32, rasterio_transform, bounds)"""
     if not RASTERIO_MEVCUT:
         raise ImportError("pip install rasterio")
     with rasterio.open(dem_dosya) as src:
         dem       = src.read(1).astype(np.float32)
-        dem[dem < -9000] = np.nan
         transform = src.transform
         bounds    = src.bounds
-    print(f"  DEM boyutu: {dem.shape}  "
-          f"(~{dem.shape[0]*PIKSEL_BOYUT:.0f}m x {dem.shape[1]*PIKSEL_BOYUT:.0f}m)")
+    dem[dem < -9000] = np.nan  # NoData maskeleme
+    print(f"[DEM] Boyut: {dem.shape}  "
+          f"(~{dem.shape[0]*PIKSEL_M/1000:.1f}km × {dem.shape[1]*PIKSEL_M/1000:.1f}km)")
     return dem, transform, bounds
 
 
-# ── 6. Eğim haritası ─────────────────────────────────────────────────────────
+# ── 3. Eğim haritası (Horn yöntemi, vektörize) ───────────────────────────────
 
-def egim_hesapla(dem: np.ndarray, piksel_m: float = PIKSEL_BOYUT) -> np.ndarray:
-    print("Eğim haritası hesaplanıyor...")
-    dy, dx = np.gradient(dem, piksel_m, piksel_m)
-    egim   = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
-    egim   = np.where(np.isnan(dem), np.nan, egim)
-    toplam = np.sum(~np.isnan(egim))
-    oran   = np.nansum(egim <= GUVENLI_EGIM) / toplam * 100 if toplam else 0
-    print(f"  Güvenli alan (≤{GUVENLI_EGIM}°): %{oran:.1f}")
-    return egim.astype(np.float32)
-
-
-# ── 7. Güvenli noktalar ───────────────────────────────────────────────────────
-
-def guvenli_noktalari_otomatik_bul(egim_array: np.ndarray, transform, adim: int = 3) -> list:
+def egim_hesapla(dem: np.ndarray, piksel_m: float = PIKSEL_M) -> np.ndarray:
     """
-    Eğim ≤ GUVENLI_EGIM olan tüm pikselleri güvenli nokta olarak işaretler.
-    adim: her kaç pikselde bir nokta alınsın (çok fazla nokta olmasın diye)
+    Horn yöntemi ile eğim haritası (derece).
+    3×3 konvolüsyon — np.gradient'e göre kenar etkileri daha az.
     """
-    print("Güvenli noktalar otomatik tespit ediliyor...")
-    noktalar = []
-    rows, cols = np.where(egim_array <= GUVENLI_EGIM)
+    print("[EĞİM] Horn yöntemi ile hesaplanıyor…")
+    pad = np.pad(dem, 1, mode="edge")
 
-    for r, c in zip(rows[::adim], cols[::adim]):
-        if RASTERIO_MEVCUT:
+    nw = pad[:-2, :-2]; n = pad[:-2, 1:-1]; ne = pad[:-2, 2:]
+    w  = pad[1:-1, :-2];                     e  = pad[1:-1, 2:]
+    sw = pad[2:,  :-2]; s = pad[2:,  1:-1]; se = pad[2:,  2:]
+
+    dzdx = ((ne + 2*e + se) - (nw + 2*w + sw)) / (8.0 * piksel_m)
+    dzdy = ((sw + 2*s + se) - (nw + 2*n + ne)) / (8.0 * piksel_m)
+
+    egim = np.degrees(np.arctan(np.sqrt(dzdx**2 + dzdy**2))).astype(np.float32)
+    egim = np.where(np.isnan(dem), np.nan, egim)
+
+    gecerli = int(np.sum(~np.isnan(egim)))
+    if gecerli:
+        guv_oran = float(np.nansum(egim <= GUVENLI_EGIM)) / gecerli * 100
+        print(f"  Güvenli alan (≤{GUVENLI_EGIM}°): %{guv_oran:.1f}  "
+              f"({gecerli * PIKSEL_M**2 / 1e6:.2f} km² toplam)")
+    return egim
+
+
+# ── 4. OSM engel maskesi ──────────────────────────────────────────────────────
+
+def osm_engel_maskesi(
+    egim:    np.ndarray,
+    transform,
+    lat_min: float, lat_max: float,
+    lon_min: float, lon_max: float,
+) -> np.ndarray:
+    """
+    Overpass API ile bina/orman/su poligonlarını çeker,
+    engel olan pikselleri True olarak işaretler.
+    overpy kurulu değilse sıfır maskesi döner (sessiz geçer).
+    """
+    maske = np.zeros(egim.shape, dtype=bool)
+    if not OVERPY_MEVCUT:
+        print("[OSM] overpy kurulu değil — engel maskesi atlandı.")
+        return maske
+
+    print("[OSM] Engel poligonları çekiliyor (Overpass API)…")
+    try:
+        api = _overpy.Overpass()
+        filtreler_str = "\n  ".join(
+            f"way[{f}]({lat_min:.6f},{lon_min:.6f},{lat_max:.6f},{lon_max:.6f});"
+            for f in _OSM_FILTRELER
+        )
+        sorgu = (f"[out:json][timeout:{OSM_ZAMAN_ASIMI}];\n"
+                 f"(\n  {filtreler_str}\n);\nout body;\n>;\nout skel qt;\n")
+        sonuc     = api.query(sorgu)
+        node_map  = {n.id: (float(n.lat), float(n.lon)) for n in sonuc.nodes}
+        poligonlar = []
+        for way in sonuc.ways:
+            pts = [node_map[nid] for nid in way._node_ids if nid in node_map]
+            if len(pts) >= 3:
+                poligonlar.append(pts)
+        print(f"  {len(poligonlar)} poligon alındı.")
+
+        rows, cols = np.where(~np.isnan(egim))
+        for r, c in zip(rows, cols):
             lon, lat = transform * (c, r)
-        else:
-            t = transform
-            lon = t[2] + c * t[0]
-            lat = t[5] + r * t[4]
+            if any(_icinde_mi(lat, lon, p) for p in poligonlar):
+                maske[r, c] = True
+
+        print(f"  Engelli piksel: {maske.sum()}")
+    except Exception as ex:
+        print(f"  ⚠  OSM sorgusu başarısız: {ex} — maske sıfırlandı.")
+
+    return maske
+
+
+def _icinde_mi(lat: float, lon: float, poly: list) -> bool:
+    """Ray casting — nokta poligon içinde mi?"""
+    n = len(poly)
+    icinde = False
+    j = n - 1
+    for i in range(n):
+        yi, xi = poly[i]
+        yj, xj = poly[j]
+        if ((yi > lat) != (yj > lat)) and (
+            lon < (xj - xi) * (lat - yi) / (yj - yi) + xi
+        ):
+            icinde = not icinde
+        j = i
+    return icinde
+
+
+# ── 5. Güvenli nokta tespiti ──────────────────────────────────────────────────
+
+def guvenli_noktalari_bul(
+    egim:    np.ndarray,
+    transform,
+    maske:   np.ndarray = None,
+    adim:    int        = 5,
+) -> list:
+    """
+    Eğim ≤ GUVENLI_EGIM  → GUVENLI
+    Eğim ≤ RISKLI_EGIM   → RISKLI
+    OSM engeli varsa      → atla
+    adim: piksel örnekleme adımı (5 → her ~150m'de bir nokta)
+    """
+    print(f"[NOKTALAR] Güvenli noktalar tespit ediliyor (adım={adim} piksel)…")
+    noktalar = []
+
+    rows = np.arange(0, egim.shape[0], adim)
+    cols = np.arange(0, egim.shape[1], adim)
+    rr, cc = np.meshgrid(rows, cols, indexing="ij")
+    rr, cc = rr.ravel(), cc.ravel()
+
+    for r, c in zip(rr, cc):
+        e = egim[r, c]
+        if np.isnan(e) or e > RISKLI_EGIM:
+            continue
+        if maske is not None and maske[r, c]:
+            continue
+
+        lon, lat = transform * (c, r)
+        durum = "GUVENLI" if e <= GUVENLI_EGIM else "RISKLI"
         noktalar.append({
-            "id":    f"G{len(noktalar)+1}",
+            "id":    f"{durum[0]}{len(noktalar)+1:04d}",
             "lat":   round(float(lat), 6),
             "lon":   round(float(lon), 6),
-            "egim":  round(float(egim_array[r, c]), 2),
-            "durum": "GUVENLI",
+            "egim":  round(float(e), 2),
+            "durum": durum,
         })
 
-    print(f"  {len(noktalar)} güvenli nokta bulundu (eğim ≤ {GUVENLI_EGIM}°)")
+    guvenli = sum(1 for n in noktalar if n["durum"] == "GUVENLI")
+    print(f"  ✓  {guvenli} güvenli  |  {len(noktalar)-guvenli} riskli  nokta")
     return noktalar
 
 
-# ── 8. Görselleştirme ─────────────────────────────────────────────────────────
+# ── 6. ArduPilot terrain .DAT üretici ────────────────────────────────────────
 
-def gorselleştir(egim_array, noktalar_sonuc, transform, cikti="egim_haritasi.png"):
+def terrain_dat_uret(
+    dem:        np.ndarray,
+    transform,
+    bounds,
+    spacing_m:  int = 30,
+    cikti_klas: str = "terrain_sd",
+) -> int:
+    """
+    ArduPilot AP_Terrain uyumlu .DAT tile dosyaları üretir.
+
+    Üretilen dosyaları SD karta kopyala:
+        cp terrain_sd/*.DAT /media/SD/APM/TERRAIN/
+
+    ArduPilot parametreleri:
+        TERRAIN_ENABLE  = 1
+        TERRAIN_SPACING = 30   # (metre, spacing_m ile eşleşmeli)
+
+    Dosya formatı:
+        4B  magic "APCO"
+        2B  grid spacing (uint16 LE, metre)
+        4B  lat_origin (int32 LE, ×1e7)
+        4B  lon_origin (int32 LE, ×1e7)
+        2B  n_lat (uint16 LE)
+        2B  n_lon (uint16 LE)
+        N×  int16 LE yükseklik verisi (satır-majör, lat artan yönde)
+    """
+    os.makedirs(cikti_klas, exist_ok=True)
+    print(f"[DAT] ArduPilot terrain tile'ları üretiliyor → {cikti_klas}/")
+
+    lat_min = bounds.bottom
+    lat_max = bounds.top
+    lon_min = bounds.left
+    lon_max = bounds.right
+
+    tile_sayisi = 0
+    for lat_f in range(int(math.floor(lat_min)), int(math.ceil(lat_max))):
+        for lon_f in range(int(math.floor(lon_min)), int(math.ceil(lon_max))):
+            _tek_tile_yaz(dem, transform, lat_f, lon_f, spacing_m, cikti_klas)
+            tile_sayisi += 1
+
+    print(f"  ✓  {tile_sayisi} .DAT tile → {cikti_klas}/")
+    print(f"  SD karta kopyala:")
+    print(f"    cp {cikti_klas}/*.DAT /media/SD/APM/TERRAIN/")
+    return tile_sayisi
+
+
+def _pix_yukseklik(dem: np.ndarray, transform, lat: float, lon: float) -> int:
+    """DEM array'inden verilen koordinatın yüksekliğini int16 olarak döndürür."""
+    try:
+        from rasterio.transform import rowcol
+        r, c = rowcol(transform, lon, lat)
+        if 0 <= r < dem.shape[0] and 0 <= c < dem.shape[1]:
+            v = dem[r, c]
+            if not np.isnan(v):
+                return int(np.clip(v, -32768, 32767))
+    except Exception:
+        pass
+    return 0
+
+
+def _tek_tile_yaz(dem, transform, lat_taban, lon_taban, spacing_m, cikti_klas):
+    """Tek 1°×1° tile için .DAT dosyası yazar."""
+    lh = "N" if lat_taban >= 0 else "S"
+    oh = "E" if lon_taban >= 0 else "W"
+    dosya_adi = f"{lh}{abs(lat_taban):02d}{oh}{abs(lon_taban):03d}.DAT"
+    yol       = os.path.join(cikti_klas, dosya_adi)
+
+    m_per_deg_lat = 111320.0
+    m_per_deg_lon = 111320.0 * math.cos(math.radians(lat_taban + 0.5))
+    n_lat = max(2, int(m_per_deg_lat / spacing_m))
+    n_lon = max(2, int(m_per_deg_lon / spacing_m)) if m_per_deg_lon > 0 else 2
+
+    veriler = []
+    for i in range(n_lat):
+        for j in range(n_lon):
+            lat = lat_taban + i * spacing_m / m_per_deg_lat
+            lon = lon_taban + j * spacing_m / m_per_deg_lon if m_per_deg_lon > 0 else lon_taban
+            veriler.append(_pix_yukseklik(dem, transform, lat, lon))
+
+    with open(yol, "wb") as f:
+        f.write(b"APCO")
+        f.write(struct.pack("<H", spacing_m))
+        f.write(struct.pack("<i", int(lat_taban * 1e7)))
+        f.write(struct.pack("<i", int(lon_taban * 1e7)))
+        f.write(struct.pack("<H", n_lat))
+        f.write(struct.pack("<H", n_lon))
+        f.write(struct.pack(f"<{len(veriler)}h", *veriler))
+
+
+# ── 7. Görselleştirme ─────────────────────────────────────────────────────────
+
+def gorselleştir(
+    egim:      np.ndarray,
+    noktalar:  list,
+    transform,
+    osm_maske: np.ndarray = None,
+    cikti:     str = "egim_haritasi.png",
+):
     if not MATPLOTLIB_MEVCUT:
-        print("  (matplotlib yok — görsel atlandı)")
+        print("[GÖRSEL] matplotlib kurulu değil — atlandı. pip install matplotlib")
         return
-    import matplotlib.colors as mc
-    fig, ax = plt.subplots(figsize=(12, 10))
-    norm = mc.BoundaryNorm([0, 5, 10, 15, 25, 45, 90], 256)
-    im   = ax.imshow(egim_array, cmap="RdYlGn_r", norm=norm, interpolation="nearest")
-    plt.colorbar(im, ax=ax, label="Eğim (°)", shrink=0.8)
-    for n in noktalar_sonuc:
-        col, row = ~transform * (n["lon"], n["lat"])
-        renk = {"GUVENLI": "lime", "RISKLI": "yellow", "TEHLIKELI": "red"}.get(
-            n["durum"], "grey"
-        )
-        ax.plot(col, row, "o", color=renk, markersize=6, markeredgecolor="black")
-    ax.set_title("Eğim Haritası — Güvenli İniş Noktaları  (Copernicus GLO-30)")
+
+    fig, ax = plt.subplots(figsize=(14, 11))
+    sinirlar = [0, 5, 10, 15, 25, 45, 90]
+    norm = mc.BoundaryNorm(sinirlar, 256)
+    im   = ax.imshow(egim, cmap="RdYlGn_r", norm=norm, interpolation="nearest")
+    plt.colorbar(im, ax=ax, label="Eğim (°)", shrink=0.8, ticks=sinirlar)
+
+    if osm_maske is not None and osm_maske.any():
+        rgba = np.zeros((*osm_maske.shape, 4), dtype=np.float32)
+        rgba[osm_maske] = [1.0, 0.0, 0.0, 0.45]
+        ax.imshow(rgba, interpolation="nearest")
+
+    renk_map = {"GUVENLI": "#00ff44", "RISKLI": "#ffdd00"}
+    for n in noktalar:
+        col = (n["lon"] - transform.c) / transform.a
+        row = (n["lat"] - transform.f) / transform.e
+        renk = renk_map.get(n["durum"], "grey")
+        ax.plot(col, row, "o", color=renk, markersize=4,
+                markeredgecolor="black", markeredgewidth=0.4, alpha=0.8)
+
+    from matplotlib.patches import Patch
+    legend_elems = [
+        Patch(color="#00ff44", label=f"Güvenli (≤{GUVENLI_EGIM}°)"),
+        Patch(color="#ffdd00", label=f"Riskli  (≤{RISKLI_EGIM}°)"),
+    ]
+    if osm_maske is not None and osm_maske.any():
+        legend_elems.append(Patch(color="red", alpha=0.45, label="OSM Engel"))
+    ax.legend(handles=legend_elems, loc="lower right", fontsize=9)
+
+    ax.set_title(
+        "Eğim Haritası — Güvenli İniş Noktaları  "
+        "(Copernicus GLO-30 | AWS S3 Anonim)", fontsize=12
+    )
+    ax.set_xlabel("Sütun (piksel)")
+    ax.set_ylabel("Satır (piksel)")
     plt.tight_layout()
     plt.savefig(cikti, dpi=150)
-    print(f"  Görsel: {cikti}")
+    print(f"[GÖRSEL] Kaydedildi: {cikti}")
     plt.close()
 
 
-# ── 9. Kaydetme ───────────────────────────────────────────────────────────────
+# ── 8. NPZ kaydetme ───────────────────────────────────────────────────────────
 
-def kaydet(egim_array, transform, bounds, noktalar_sonuc, cikti="alan_verisi.npz"):
-    t_arr = np.array([transform.a, transform.b, transform.c,
-                      transform.d, transform.e, transform.f])
-    b_arr = np.array([bounds.left, bounds.bottom, bounds.right, bounds.top])
+def kaydet(
+    egim:      np.ndarray,
+    dem:       np.ndarray,
+    transform,
+    bounds,
+    noktalar:  list,
+    cikti:     str = "alan_verisi.npz",
+):
+    """
+    AlanInisKarar + terrain server tarafından kullanılacak NPZ dosyasını yazar.
+
+    Format:
+        egim          – float32 eğim matrisi (AlanInisKarar için)
+        dem           – float32 yükseklik matrisi (terrain server için)
+        transform     – 6-eleman float64 (rasterio Affine uyumlu)
+        bounds        – 4-eleman float64 [left, bottom, right, top]
+        noktalar_json – JSON string (güvenli/riskli nokta listesi)
+    """
+    t_arr = np.array([
+        transform.a, transform.b, transform.c,
+        transform.d, transform.e, transform.f,
+    ], dtype=np.float64)
+    b_arr = np.array(
+        [bounds.left, bounds.bottom, bounds.right, bounds.top],
+        dtype=np.float64,
+    )
     np.savez_compressed(
         cikti,
-        egim          = egim_array,
+        egim          = egim,
+        dem           = dem,   # yükseklik — terrain server TERRAIN_DATA yanıtları için
         transform     = t_arr,
         bounds        = b_arr,
-        noktalar_json = np.array([json.dumps(noktalar_sonuc, ensure_ascii=False)]),
+        noktalar_json = np.array([json.dumps(noktalar, ensure_ascii=False)]),
     )
-    print(f"\nKaydedildi: {cikti} ({os.path.getsize(cikti) // 1024} KB)")
+    boyut_kb = os.path.getsize(cikti) // 1024
+    guvenli  = sum(1 for n in noktalar if n["durum"] == "GUVENLI")
+    print(f"\n✓  Kaydedildi: {cikti}  ({boyut_kb} KB)")
+    print(f"   Güvenli nokta : {guvenli}")
+    print(f"   Riskli nokta  : {len(noktalar) - guvenli}")
+    print(f"   Eğim matrisi  : {egim.shape[0]}×{egim.shape[1]} piksel  "
+          f"(~{egim.shape[0]*PIKSEL_M:.0f}m × {egim.shape[1]*PIKSEL_M:.0f}m)")
 
 
-# ── 10. Config yükleme yardımcısı ────────────────────────────────────────────
+# ── Bağımlılık kontrolü ───────────────────────────────────────────────────────
 
-def _config_oku(config_dosya: str) -> dict:
-    with open(config_dosya, encoding="utf-8") as f:
-        return json.load(f)
+def _bagimlilik_kontrol():
+    eksik = []
+    if not BOTO3_MEVCUT:
+        eksik.append("boto3")
+    if not RASTERIO_MEVCUT:
+        eksik.append("rasterio")
+    if eksik:
+        print(f"HATA: Zorunlu paketler eksik: {', '.join(eksik)}")
+        print(f"  pip install {' '.join(eksik)}")
+        sys.exit(1)
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Uçuş alanı DEM + eğim haritası hazırlama (Copernicus GLO-30)"
+        description=(
+            "Uçuş alanı DEM + eğim haritası hazırlama\n"
+            "Copernicus GLO-30 → AWS S3 anonim erişim (kimlik bilgisi GEREKMİYOR)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--config",     default="../config.json",
-                        help="config.json yolu (Copernicus kimlik bilgileri oradan okunur)")
-    parser.add_argument("--kullanici",  default="",
-                        help="Copernicus kullanıcı adı (e-posta) — config'i ezer")
-    parser.add_argument("--sifre",      default="",
-                        help="Copernicus şifre — config'i ezer")
-    parser.add_argument("--s3-key",     default="",
-                        dest="s3_key",
-                        help="S3 Access Key — config'i ezer")
-    parser.add_argument("--s3-secret",  default="",
-                        dest="s3_secret",
-                        help="S3 Secret Key — config'i ezer")
-    parser.add_argument("--alan",       nargs=4, type=float, required=True,
-                        metavar=("LAT_MIN", "LAT_MAX", "LON_MIN", "LON_MAX"))
-    parser.add_argument("--cikti",       default="alan_verisi.npz")
-    parser.add_argument("--dem-dosya",   default="alan_dem.tif")
-    parser.add_argument("--gorsel",      action="store_true")
-    # Katman 2: Rally Point yükleme
-    parser.add_argument("--rally-yukle", action="store_true",
-                        dest="rally_yukle",
-                        help="Alan hazırlandıktan sonra en iyi 5 noktayı "
-                             "ArduPilot'a Rally Point olarak yükle")
-    parser.add_argument("--rally-baglanti", default="tcp:127.0.0.1:5762",
-                        dest="rally_baglanti",
-                        help="Rally yükleme için MAVLink bağlantı dizesi")
-    parser.add_argument("--rally-n",    type=int, default=5,
-                        dest="rally_n",
-                        help="Yüklenecek rally noktası sayısı (varsayılan: 5)")
+    parser.add_argument(
+        "--alan", nargs=4, type=float, required=True,
+        metavar=("LAT_MIN", "LAT_MAX", "LON_MIN", "LON_MAX"),
+        help="Uçuş alanı bounding box  (örn: 40.9 41.1 28.8 29.0)",
+    )
+    parser.add_argument("--cikti",       default="alan_verisi.npz",
+                        help="NPZ çıktısı — AlanInisKarar tarafından okunur")
+    parser.add_argument("--dem-dosya",   default="alan_dem.tif",
+                        help="Ara DEM GeoTIFF (saklanabilir veya silinebilir)")
+    parser.add_argument("--adim",        type=int, default=5,
+                        help="Nokta örnekleme adımı (piksel, varsayılan=5 → ~150m)")
+    parser.add_argument("--gorsel",      action="store_true",
+                        help="Eğim haritası PNG oluştur")
+    parser.add_argument("--osm",         action="store_true",
+                        help="OSM engel maskesi uygula (pip install overpy gerektirir)")
+    parser.add_argument("--terrain-dat", default="", metavar="KLASOR",
+                        help="ArduPilot terrain .DAT tile üret (SD kart için)")
+    parser.add_argument("--spacing",     type=int, default=30,
+                        help="Terrain DAT grid aralığı metre (varsayılan=30, "
+                             "ArduPilot TERRAIN_SPACING ile eşleşmeli)")
     args = parser.parse_args()
 
-    # Kimlik bilgilerini config'den ya da argümandan al
-    cfg_cop = {}
-    if os.path.isfile(args.config):
-        try:
-            cfg_cop = _config_oku(args.config).get("copernicus", {})
-        except Exception as e:
-            print(f"Uyarı: config.json okunamadı ({e}) — komut satırı argümanları kullanılıyor.")
-
-    kullanici  = args.kullanici  or cfg_cop.get("kullanici_adi", "")
-    sifre      = args.sifre      or cfg_cop.get("sifre", "")
-    s3_key     = args.s3_key     or cfg_cop.get("s3_access_key", "")
-    s3_secret  = args.s3_secret  or cfg_cop.get("s3_secret_key", "")
-    s3_ep      = cfg_cop.get("s3_endpoint",  COPERNICUS_S3_ENDPOINT)
-    stac_url   = cfg_cop.get("stac_url",     COPERNICUS_STAC_URL)
-    koleksiyon = cfg_cop.get("dem_koleksiyonu", COPERNICUS_DEM_KOLEKSIYON)
-
-    if not s3_key or not s3_secret:
-        print(
-            "HATA: S3 erişim anahtarı bulunamadı.\n"
-            "  → config.json → copernicus → s3_access_key / s3_secret_key\n"
-            "  → veya --s3-key / --s3-secret argümanları\n"
-            "  Anahtarı almak için: dataspace.copernicus.eu → User Settings → S3 Access"
-        )
-        sys.exit(1)
+    _bagimlilik_kontrol()
 
     lat_min, lat_max, lon_min, lon_max = args.alan
 
-    # İndirme
-    dem_dosya = dem_indir(
-        lat_min, lat_max, lon_min, lon_max,
-        s3_access_key=s3_key,
-        s3_secret_key=s3_secret,
-        kullanici=kullanici,
-        sifre=sifre,
-        s3_endpoint=s3_ep,
-        stac_url=stac_url,
-        koleksiyon=koleksiyon,
-        cikti=args.dem_dosya,
-    )
+    print("=" * 62)
+    print("  Doğuş Üni LÖP — Alan Hazırlama  (Copernicus GLO-30 / AWS S3)")
+    print(f"  Alan : LAT [{lat_min}, {lat_max}]  LON [{lon_min}, {lon_max}]")
+    print("=" * 62)
 
+    # 1 — DEM indir
+    dem_dosya = dem_indir(lat_min, lat_max, lon_min, lon_max, cikti=args.dem_dosya)
+
+    # 2 — DEM oku
     dem, transform, bounds = dem_oku(dem_dosya)
+
+    # 3 — Eğim hesapla
     egim = egim_hesapla(dem)
-    noktalar_sonuc = guvenli_noktalari_otomatik_bul(egim, transform)
 
+    # 4 — OSM maskesi (opsiyonel)
+    osm_maske = None
+    if args.osm:
+        osm_maske = osm_engel_maskesi(
+            egim, transform, lat_min, lat_max, lon_min, lon_max
+        )
+
+    # 5 — Güvenli noktaları bul
+    noktalar = guvenli_noktalari_bul(egim, transform, maske=osm_maske, adim=args.adim)
+
+    # 6 — Görsel (opsiyonel)
     if args.gorsel:
-        gorselleştir(egim, noktalar_sonuc, transform)
+        gorselleştir(egim, noktalar, transform, osm_maske=osm_maske)
 
-    kaydet(egim, transform, bounds, noktalar_sonuc, args.cikti)
+    # 7 — NPZ kaydet (egim + dem birlikte)
+    kaydet(egim, dem, transform, bounds, noktalar, cikti=args.cikti)
 
-    # ── Katman 2: Rally Point yükleme ────────────────────────────────────────
-    if args.rally_yukle:
-        print(f"\n{'─'*50}")
-        print("Rally Point yükleme başlatılıyor (Katman 2 — Donanımsal Yedek)...")
-        try:
-            from rally_yukle import en_iyi_noktalar, rally_yukle
-            # Merkez = alan ortası
-            merkez_lat = (lat_min + lat_max) / 2
-            merkez_lon = (lon_min + lon_max) / 2
-            rally_noktalar = en_iyi_noktalar(
-                args.cikti, n=args.rally_n,
-                merkez_lat=merkez_lat, merkez_lon=merkez_lon,
-            )
-            basarili = rally_yukle(rally_noktalar, baglanti_dizesi=args.rally_baglanti)
-            if basarili:
-                print(f"✓ {len(rally_noktalar)} rally noktası ArduPilot'a yüklendi.")
-            else:
-                print("✗ Rally yükleme başarısız — log'u kontrol edin.")
-        except ImportError as e:
-            print(f"Uyarı: rally_yukle.py yüklenemedi ({e})")
-        except Exception as e:
-            print(f"Rally yükleme hatası: {e}")
+    # 8 — ArduPilot terrain DAT (opsiyonel)
+    if args.terrain_dat:
+        terrain_dat_uret(dem, transform, bounds,
+                         spacing_m=args.spacing,
+                         cikti_klas=args.terrain_dat)
+
+    print("\n" + "=" * 62)
+    print("  Hazırlık tamamlandı.")
+    print(f"  NPZ → {args.cikti}  (AlanInisKarar + GCS terrain server)")
+    if args.terrain_dat:
+        print(f"  DAT → {args.terrain_dat}/  (SD kart APM/TERRAIN/ klasörüne kopyala)")
+    print("=" * 62)
 
 
 if __name__ == "__main__":
