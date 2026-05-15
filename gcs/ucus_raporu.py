@@ -127,6 +127,211 @@ class UcusKaydedici:
 
         return dosya
 
+    def html_rapor_olustur(self) -> str:
+        """
+        Analiz yapar, interaktif grafik içeren HTML rapor oluşturur.
+        Döndürür: .html dosya yolu (boşsa "").
+        """
+        if not self._veriler:
+            return ""
+
+        analiz   = self._analiz_et()
+        zaman_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dosya     = os.path.join(self._klasor, f"ucus_{zaman_str}.html")
+
+        with open(dosya, "w", encoding="utf-8") as f:
+            f.write(self._html_olustur(analiz))
+
+        return dosya
+
+    # ── HTML üretici ──────────────────────────────────────────────────────────
+
+    def _html_olustur(self, a: dict) -> str:
+        tarih_str = datetime.now().strftime("%d.%m.%Y %H:%M")
+        sure_dk   = a["sure_sn"] / 60
+        sure_str  = f"{int(sure_dk)}dk {int(a['sure_sn'] % 60)}sn"
+
+        # Grafik verileri — her 5. ölçüm (performans için)
+        v = self._veriler[::5] if len(self._veriler) > 200 else self._veriler
+        t0 = v[0].zaman if v else 0
+        etiketler  = json.dumps([f"{(x.zaman-t0)/60:.1f}" for x in v])
+        irtifa_d   = json.dumps([round(x.irtifa, 1) for x in v])
+        batarya_d  = json.dumps([x.batarya_yuzde if x.batarya_yuzde >= 0 else "null" for x in v])
+        ruzgar_d   = json.dumps([round(x.ruzgar_ms * 3.6, 1) for x in v])
+        hiz_d      = json.dumps([round(x.hiz, 1) for x in v])
+
+        # Uyarı badge'leri
+        uyarilar = []
+        if a["kritik_bat"]:
+            uyarilar.append(("kirmizi", f"⚠ Batarya kritik seviyeye (%{BATARYA_KRITIK_YDZ}) düştü!"))
+        elif a["dusuk_bat"]:
+            uyarilar.append(("sari", f"⚠ Batarya düşük seviyeye (%{BATARYA_DUSUK_YDZ}) geriledi."))
+        if a["gps_kayip_sayisi"] > 0:
+            uyarilar.append(("sari", f"⚠ {a['gps_kayip_sayisi']} kez GPS fix kaybı yaşandı."))
+        if any(a["imu_asiri"]):
+            idx = [i for i, x in enumerate(a["imu_asiri"]) if x]
+            uyarilar.append(("kirmizi", f"⚠ IMU sıcaklığı aşıldı: {', '.join(f'IMU{i}' for i in idx)}"))
+        if a["tehlikeli_ruzgar"]:
+            uyarilar.append(("sari", f"⚠ Rüzgar {a['ruzgar_max_kmh']:.0f} km/h — tehlikeli eşiği aştı."))
+        if a["ekf_max"] > 0.5:
+            uyarilar.append(("sari", f"⚠ EKF hata puanı yüksek ({a['ekf_max']:.2f})."))
+
+        if not uyarilar:
+            uyarilar.append(("yesil", "✓ Uçuş sorunsuz tamamlandı — anormal durum tespit edilmedi."))
+
+        uyari_html = "\n".join(
+            f'<div class="badge {r}">{m}</div>' for r, m in uyarilar
+        )
+
+        genel_renk = "kirmizi" if any(r == "kirmizi" for r, _ in uyarilar) else \
+                     "sari"    if any(r == "sari"    for r, _ in uyarilar) else "yesil"
+        genel_yazi = "KRİTİK SORUN" if genel_renk == "kirmizi" else \
+                     "UYARI VAR"    if genel_renk == "sari"     else "BAŞARILI"
+
+        # IMU satırları
+        imu_satirlar = "".join(
+            f'<td>{a["imu_max"][i]:.1f} °C {"⚠" if a["imu_asiri"][i] else "✓"}</td>'
+            for i in range(3)
+        )
+
+        return f"""<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uçuş Raporu — {tarih_str}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; }}
+  header {{ background: #161b22; border-bottom: 2px solid #21262d; padding: 18px 32px; display: flex; align-items: center; gap: 16px; }}
+  header h1 {{ font-size: 1.4rem; color: #58a6ff; }}
+  header span {{ font-size: 0.9rem; color: #8b949e; }}
+  .container {{ max-width: 1200px; margin: 0 auto; padding: 24px; }}
+  .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }}
+  .card {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 18px; text-align: center; }}
+  .card .val {{ font-size: 2rem; font-weight: bold; color: #58a6ff; }}
+  .card .lbl {{ font-size: 0.8rem; color: #8b949e; margin-top: 4px; }}
+  .charts {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }}
+  .chart-box {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 20px; }}
+  .chart-box h3 {{ font-size: 0.95rem; color: #8b949e; margin-bottom: 14px; }}
+  .badges {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 20px; margin-bottom: 24px; }}
+  .badges h2 {{ font-size: 1rem; margin-bottom: 14px; color: #8b949e; }}
+  .badge {{ padding: 10px 16px; border-radius: 6px; margin-bottom: 8px; font-size: 0.9rem; font-weight: 500; }}
+  .badge.yesil {{ background: #0d4429; border: 1px solid #238636; color: #3fb950; }}
+  .badge.sari  {{ background: #2d2208; border: 1px solid #9e6a03; color: #d29922; }}
+  .badge.kirmizi {{ background: #2d0b0b; border: 1px solid #da3633; color: #f85149; }}
+  .tablo {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 20px; margin-bottom: 24px; overflow-x: auto; }}
+  .tablo h2 {{ font-size: 1rem; margin-bottom: 14px; color: #8b949e; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 0.88rem; }}
+  th {{ background: #21262d; color: #8b949e; padding: 8px 14px; text-align: left; }}
+  td {{ padding: 8px 14px; border-bottom: 1px solid #21262d; }}
+  .genel {{ text-align: center; padding: 18px; border-radius: 10px; margin-bottom: 24px; font-size: 1.1rem; font-weight: bold; }}
+  .genel.yesil   {{ background: #0d4429; border: 1px solid #238636; color: #3fb950; }}
+  .genel.sari    {{ background: #2d2208; border: 1px solid #9e6a03; color: #d29922; }}
+  .genel.kirmizi {{ background: #2d0b0b; border: 1px solid #da3633; color: #f85149; }}
+  footer {{ text-align: center; padding: 20px; color: #444; font-size: 0.8rem; border-top: 1px solid #21262d; margin-top: 8px; }}
+  @media (max-width: 768px) {{ .charts {{ grid-template-columns: 1fr; }} }}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>🛸 Doğuş Üniversitesi LÖP — Uçuş Raporu</h1>
+    <span>📅 {tarih_str} &nbsp;|&nbsp; ⏱ {sure_str}</span>
+  </div>
+</header>
+<div class="container">
+
+  <!-- Özet Kartları -->
+  <div class="cards">
+    <div class="card"><div class="val">{sure_str}</div><div class="lbl">Uçuş Süresi</div></div>
+    <div class="card"><div class="val">{a['mesafe_m']:.0f} m</div><div class="lbl">Kat Edilen Yol</div></div>
+    <div class="card"><div class="val">{a['irtifa_max']:.1f} m</div><div class="lbl">Maks İrtifa</div></div>
+    <div class="card"><div class="val">{a['hiz_max']:.1f} m/s</div><div class="lbl">Maks Hız</div></div>
+    <div class="card"><div class="val">{a['bat_baslangic']}% → {a['bat_bitis']}%</div><div class="lbl">Batarya Kullanımı</div></div>
+    <div class="card"><div class="val">{a['ruzgar_max_kmh']:.0f} km/h</div><div class="lbl">Maks Rüzgar</div></div>
+  </div>
+
+  <!-- Grafikler -->
+  <div class="charts">
+    <div class="chart-box">
+      <h3>📈 İrtifa (m)</h3>
+      <canvas id="cIrtifa" height="140"></canvas>
+    </div>
+    <div class="chart-box">
+      <h3>🔋 Batarya (%)</h3>
+      <canvas id="cBatarya" height="140"></canvas>
+    </div>
+    <div class="chart-box">
+      <h3>💨 Rüzgar (km/h)</h3>
+      <canvas id="cRuzgar" height="140"></canvas>
+    </div>
+    <div class="chart-box">
+      <h3>🚀 Hız (m/s)</h3>
+      <canvas id="cHiz" height="140"></canvas>
+    </div>
+  </div>
+
+  <!-- Uyarılar -->
+  <div class="badges">
+    <h2>⚠ Uyarılar ve Durum</h2>
+    {uyari_html}
+  </div>
+
+  <!-- Detay Tablosu -->
+  <div class="tablo">
+    <h2>📊 Detaylı İstatistikler</h2>
+    <table>
+      <tr><th>Parametre</th><th>Değer</th></tr>
+      <tr><td>Batarya Min Voltaj</td><td>{a['bat_min_v']:.2f} V</td></tr>
+      <tr><td>Batarya Maks Akım</td><td>{a['bat_max_a']:.1f} A</td></tr>
+      <tr><td>GPS Fix Kaybı</td><td>{a['gps_kayip_sayisi']} kez</td></tr>
+      <tr><td>GPS Min Uydu</td><td>{a['gps_min_uydu']}</td></tr>
+      <tr><td>IMU Maks Sıcaklık (0/1/2)</td><td>{imu_satirlar}</td></tr>
+      <tr><td>EKF Maks Hata</td><td>{a['ekf_max']:.3f}</td></tr>
+      <tr><td>Toplam Veri Noktası</td><td>{a['veri_sayisi']}</td></tr>
+    </table>
+  </div>
+
+  <!-- Genel Değerlendirme -->
+  <div class="genel {genel_renk}">{genel_yazi}</div>
+
+</div>
+<footer>Doğuş Üniversitesi LÖP GCS — Otomatik Uçuş Raporu</footer>
+<script>
+const ETIKETLER = {etiketler};
+const _opts = (renk, dolu) => ({{
+  responsive: true,
+  plugins: {{ legend: {{ display: false }} }},
+  scales: {{
+    x: {{ ticks: {{ color: '#8b949e', maxTicksLimit: 8 }}, grid: {{ color: '#21262d' }} }},
+    y: {{ ticks: {{ color: '#8b949e' }}, grid: {{ color: '#21262d' }} }}
+  }},
+  elements: {{ point: {{ radius: 0 }}, line: {{ tension: 0.3, borderWidth: 2, fill: dolu,
+    backgroundColor: renk+'33' }} }}
+}});
+const _ds = (data, renk, dolu=false) => ({{
+  data, borderColor: renk,
+  backgroundColor: dolu ? renk+'33' : 'transparent',
+  fill: dolu, spanGaps: true
+}});
+new Chart(document.getElementById('cIrtifa'),
+  {{ type:'line', data:{{ labels:ETIKETLER, datasets:[_ds({irtifa_d},'#58a6ff',true)] }},
+    options:_opts('#58a6ff',true) }});
+new Chart(document.getElementById('cBatarya'),
+  {{ type:'line', data:{{ labels:ETIKETLER, datasets:[_ds({batarya_d},'#3fb950',true)] }},
+    options:_opts('#3fb950',true) }});
+new Chart(document.getElementById('cRuzgar'),
+  {{ type:'line', data:{{ labels:ETIKETLER, datasets:[_ds({ruzgar_d},'#d29922',false)] }},
+    options:_opts('#d29922',false) }});
+new Chart(document.getElementById('cHiz'),
+  {{ type:'line', data:{{ labels:ETIKETLER, datasets:[_ds({hiz_d},'#bc8cff',false)] }},
+    options:_opts('#bc8cff',false) }});
+</script>
+</body>
+</html>"""
+
     # ── İç analiz ─────────────────────────────────────────────────────────────
 
     def _analiz_et(self) -> dict:

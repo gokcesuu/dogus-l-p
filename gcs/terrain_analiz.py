@@ -470,8 +470,8 @@ if __name__ == "__main__":
     print("Doğuş ÜNİ LÖP – Çok Katmanlı Güvenli İniş Analizi v2")
     print("=" * 60)
 
-    lat  = float(sys.argv[1]) if len(sys.argv) > 1 else -35.363262
-    lon  = float(sys.argv[2]) if len(sys.argv) > 2 else 149.165237
+    lat  = float(sys.argv[1]) if len(sys.argv) > 1 else 39.9
+    lon  = float(sys.argv[2]) if len(sys.argv) > 2 else 32.8
     bat  = int(sys.argv[3])   if len(sys.argv) > 3 else 30
     ruz  = float(sys.argv[4]) if len(sys.argv) > 4 else 0.0
     yon  = float(sys.argv[5]) if len(sys.argv) > 5 else 0.0

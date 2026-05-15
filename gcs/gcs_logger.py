@@ -50,6 +50,7 @@ class GCSLogger:
             "gps_fix", "gps_uydu", "lat", "lon",
             "roll", "pitch", "yaw",
             "ruzgar_ms", "ruzgar_yon",
+            "ruzgar_zemin_ms", "ruzgar_trend",
             "imu0_c", "imu1_c", "imu2_c",
             "ekf_bayrak", "ekf_hata",
             "mod_id",

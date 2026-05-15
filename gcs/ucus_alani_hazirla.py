@@ -36,6 +36,7 @@ import sys
 import json
 import math
 import struct
+import time
 import argparse
 import tempfile
 import shutil
@@ -81,6 +82,9 @@ PIKSEL_M      = 30.0   # GLO-30 nominal piksel boyutu (metre)
 # https://copernicus-dem-30m.s3.amazonaws.com/readme.html
 AWS_BUCKET_30M = "copernicus-dem-30m"
 
+# Offline DEM önbellek — bir kez indirilince tekrar indirilmez
+DEM_ONBELLEK = os.path.join(os.path.expanduser("~"), ".dogus_gcs", "dem_cache")
+
 # OSM engel tipleri
 _OSM_FILTRELER = [
     '"building"', '"landuse"="forest"', '"natural"="wood"',
@@ -124,6 +128,33 @@ def _gereken_tileler(lat_min, lat_max, lon_min, lon_max) -> list:
     return tileler
 
 
+def onbellek_yolu(prefix: str) -> str:
+    """Tile için önbellek dosya yolunu döndürür."""
+    os.makedirs(DEM_ONBELLEK, exist_ok=True)
+    return os.path.join(DEM_ONBELLEK, f"{prefix}.tif")
+
+
+def onbellek_temizle(gun: int = 30) -> int:
+    """
+    N günden eski önbellek tile'larını siler.
+    Döndürür: silinen dosya sayısı.
+    """
+    if not os.path.isdir(DEM_ONBELLEK):
+        return 0
+    esik = time.time() - gun * 86400
+    silinen = 0
+    for dosya in os.listdir(DEM_ONBELLEK):
+        if not dosya.endswith(".tif"):
+            continue
+        yol = os.path.join(DEM_ONBELLEK, dosya)
+        if os.path.getmtime(yol) < esik:
+            os.remove(yol)
+            silinen += 1
+    if silinen:
+        print(f"[ÖNBELLEK] {silinen} eski tile silindi (>{gun} gün).")
+    return silinen
+
+
 def dem_indir(
     lat_min: float, lat_max: float,
     lon_min: float, lon_max: float,
@@ -131,53 +162,73 @@ def dem_indir(
 ) -> str:
     """
     Copernicus GLO-30 DEM'i AWS S3'ten anonim olarak indirir.
+    İndirilen tile'lar ~/.dogus_gcs/dem_cache/'e kaydedilir.
+    Sonraki çağrıda önbellekten okunur — internet bağlantısı gerekmez.
     Birden fazla 1°×1° tile gerekiyorsa birleştirir (mosaic).
     Döndürür: GeoTIFF dosya yolu.
     """
     if not RASTERIO_MEVCUT:
         raise ImportError("pip install rasterio")
 
-    s3 = _s3_anonim()
     tileler = _gereken_tileler(lat_min, lat_max, lon_min, lon_max)
     print(f"[DEM] {len(tileler)} tile gerekiyor  "
           f"BB: [{lat_min},{lat_max}] × [{lon_min},{lon_max}]")
 
-    with tempfile.TemporaryDirectory(prefix="lop_dem_") as tmp:
-        indirilen = []
-        for lat_f, lon_f in tileler:
-            prefix   = _tile_prefix(lat_f, lon_f)
-            s3_key   = f"{prefix}/{prefix}.tif"
-            yol      = os.path.join(tmp, f"{prefix}.tif")
+    indirilen = []
+    onbellekten = 0
+    internetten = 0
 
-            print(f"  ↓  s3://{AWS_BUCKET_30M}/{s3_key}")
-            try:
-                s3.download_file(AWS_BUCKET_30M, s3_key, yol)
-                indirilen.append(yol)
-            except Exception as e:
-                print(f"  ⚠  Tile indirilemedi ({prefix}): {e}")
+    for lat_f, lon_f in tileler:
+        prefix     = _tile_prefix(lat_f, lon_f)
+        onb_yol    = onbellek_yolu(prefix)
 
-        if not indirilen:
-            raise RuntimeError(
-                "Hiç tile indirilemedi. Koordinatları ve internet bağlantısını kontrol et.\n"
-                "Not: Armenia ve Azerbaijan tile'ları kamuya açık değil."
-            )
+        # Önbellekte var mı?
+        if os.path.isfile(onb_yol) and os.path.getsize(onb_yol) > 10_000:
+            print(f"  📦 Önbellekten: {prefix}  ({os.path.getsize(onb_yol)//1024} KB)")
+            indirilen.append(onb_yol)
+            onbellekten += 1
+            continue
 
-        if len(indirilen) == 1:
-            shutil.copy2(indirilen[0], cikti)
-        else:
-            print(f"  ⚙  {len(indirilen)} tile birleştiriliyor (mosaic)…")
-            aciklar = [rasterio.open(f) for f in indirilen]
-            try:
-                mozaik, mozaik_tf = rasterio_merge(aciklar)
-                profil = aciklar[0].profile.copy()
-                profil.update(height=mozaik.shape[1],
-                              width=mozaik.shape[2],
-                              transform=mozaik_tf)
-                with rasterio.open(cikti, "w", **profil) as dst:
-                    dst.write(mozaik)
-            finally:
-                for f in aciklar:
-                    f.close()
+        # Önbellekte yok — S3'ten indir
+        s3_key = f"{prefix}/{prefix}.tif"
+        print(f"  ↓  s3://{AWS_BUCKET_30M}/{s3_key}")
+        try:
+            s3 = _s3_anonim()
+            s3.download_file(AWS_BUCKET_30M, s3_key, onb_yol)
+            indirilen.append(onb_yol)
+            internetten += 1
+            print(f"  ✓  Önbelleğe kaydedildi: {onb_yol}  ({os.path.getsize(onb_yol)//1024} KB)")
+        except Exception as e:
+            print(f"  ⚠  Tile indirilemedi ({prefix}): {e}")
+            if os.path.isfile(onb_yol):  # kısmi dosyayı sil
+                os.remove(onb_yol)
+
+    if not indirilen:
+        raise RuntimeError(
+            "Hiç tile indirilemedi. Koordinatları ve internet bağlantısını kontrol et.\n"
+            "Not: Armenia ve Azerbaijan tile'ları kamuya açık değil.\n"
+            f"Önbellek: {DEM_ONBELLEK}"
+        )
+
+    if onbellekten:
+        print(f"  📦 {onbellekten} tile önbellekten, {internetten} tile internetten yüklendi.")
+
+    if len(indirilen) == 1:
+        shutil.copy2(indirilen[0], cikti)
+    else:
+        print(f"  ⚙  {len(indirilen)} tile birleştiriliyor (mosaic)…")
+        aciklar = [rasterio.open(f) for f in indirilen]
+        try:
+            mozaik, mozaik_tf = rasterio_merge(aciklar)
+            profil = aciklar[0].profile.copy()
+            profil.update(height=mozaik.shape[1],
+                          width=mozaik.shape[2],
+                          transform=mozaik_tf)
+            with rasterio.open(cikti, "w", **profil) as dst:
+                dst.write(mozaik)
+        finally:
+            for f in aciklar:
+                f.close()
 
     print(f"  ✓  DEM kaydedildi: {cikti}  ({os.path.getsize(cikti)//1024} KB)")
     return cikti

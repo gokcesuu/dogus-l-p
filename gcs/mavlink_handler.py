@@ -13,6 +13,7 @@ import threading
 import math
 import os
 import json
+import queue as _queue
 
 import numpy as np
 
@@ -103,6 +104,8 @@ class MAVLinkBaglantisi(QThread):
     # list: [{"motor": 0..7, "rpm": int, "sicaklik": float, "volt": float, "akim": float}, ...]
     terrain_rapor     = pyqtSignal(float, int, int)
     # (guncel_yukseklik_m, bekleyen_tile, yuklenen_tile)
+    vibrasyon_guncellendi = pyqtSignal(float, int)
+    # (vib_toplam_mss: RMS m/s², klipping_toplam: IMU saturation sayısı)
 
     def __init__(self, baglanti_dizesi: str = _VARSAYILAN_DIZE,
                  anahtar_dosya: str = None):
@@ -128,6 +131,9 @@ class MAVLinkBaglantisi(QThread):
         self._parametreler: dict[str, float] = {}
         self._param_toplam = 0
         self._param_alinan = 0
+        # Thread-safe komut kuyruğu — ana thread'den MAVLink yazımları buraya gider,
+        # _mesaj_dongusu içinde tüketilir (race condition önler).
+        self._komut_kuyrugu: _queue.Queue = _queue.Queue()
 
         # Terrain server — alan_verisi.npz varsa DEM yükle
         self._terrain_dem       = None   # float32 yükseklik array'i
@@ -252,7 +258,20 @@ class MAVLinkBaglantisi(QThread):
     def _mesaj_dongusu(self):
         """Bağlantı kopana kadar MAVLink mesajlarını işler (hem şifreli hem düz)."""
         while self._calis:
-            msg = self._baglanti.recv_match(blocking=True, timeout=2.0)
+            msg = self._baglanti.recv_match(blocking=True, timeout=0.5)
+
+            # ── Komut kuyruğunu boşalt ──────────────────────────────────────
+            # Ana thread'den gelen tüm socket yazımları burada, MAVLink
+            # thread'i içinde gerçekleşir → race condition olmaz.
+            while True:
+                try:
+                    fn, args, kwargs = self._komut_kuyrugu.get_nowait()
+                    fn(*args, **kwargs)
+                except _queue.Empty:
+                    break
+                except Exception:
+                    pass  # Komut hatası → sessiz geç, döngüyü kırma
+
             if msg is None:
                 continue  # timeout → bağlantıyı kesme, döngüye devam
 
@@ -297,6 +316,8 @@ class MAVLinkBaglantisi(QThread):
                 self._isle_esc(msg, 0 if tip.endswith("1_TO_4") else 4)
             elif tip == "TERRAIN_REPORT":
                 self._isle_terrain_rapor(msg)
+            elif tip == "VIBRATION":
+                self._isle_vibrasyon(msg)
 
     # ------------------------------------------------------------------
     def _isle_hb(self, msg):
@@ -536,9 +557,37 @@ class MAVLinkBaglantisi(QThread):
         except Exception:
             pass
 
+    def _isle_vibrasyon(self, msg):
+        """
+        VIBRATION mesajı — IMU titreşim seviyesi.
+        vibration_x/y/z: m/s² RMS (Cube Orange için normal < 15 m/s²)
+        clipping_0/1/2:  IMU saturation sayacı (> 0 → ciddi titreşim)
+        """
+        try:
+            import math
+            vib_rms = math.sqrt(
+                msg.vibration_x ** 2 +
+                msg.vibration_y ** 2 +
+                msg.vibration_z ** 2
+            )
+            klipping = int(msg.clipping_0) + int(msg.clipping_1) + int(msg.clipping_2)
+            self.vibrasyon_guncellendi.emit(vib_rms, klipping)
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
-    def komut_gonder(self, komut_id: int, param1=0, param2=0, param3=0,
-                     param4=0, param5=0, param6=0, param7=0):
+    # Thread-safe yardımcı — tüm socket yazımları bu kuyruktan geçer.
+    def _kuyruga_ekle(self, fn, *args, **kwargs):
+        """
+        Verilen callable'ı MAVLink thread kuyruğuna ekler.
+        Ana thread'den çağrılabilir; asıl yürütme _mesaj_dongusu içinde olur.
+        """
+        self._komut_kuyrugu.put((fn, args, kwargs))
+
+    # ── İç (gerçek) gönderim fonksiyonları — sadece MAVLink thread'inden çağrılır ──
+
+    def _komut_gonder_ic(self, komut_id: int, param1, param2, param3,
+                         param4, param5, param6, param7):
         if self._baglanti is None:
             return
         self._baglanti.mav.command_long_send(
@@ -548,7 +597,7 @@ class MAVLinkBaglantisi(QThread):
             param1, param2, param3, param4, param5, param6, param7,
         )
 
-    def parametreleri_iste(self):
+    def _parametreleri_iste_ic(self):
         if self._baglanti is None:
             return
         self._parametreler.clear()
@@ -559,7 +608,7 @@ class MAVLinkBaglantisi(QThread):
             self._baglanti.target_component,
         )
 
-    def parametre_ayarla(self, ad: str, deger: float):
+    def _parametre_ayarla_ic(self, ad: str, deger: float):
         if self._baglanti is None:
             return
         self._baglanti.mav.param_set_send(
@@ -570,12 +619,30 @@ class MAVLinkBaglantisi(QThread):
             mavutil.mavlink.MAV_PARAM_TYPE_REAL32,
         )
 
-    def mod_degistir(self, mod_id: int):
+    def _mod_degistir_ic(self, mod_id: int):
         if self._baglanti is None:
             return
         self._baglanti.set_mode(mod_id)
 
+    # ── Genel API — ana thread'den çağrılabilir, kuyruk üzerinden iletilir ──
+
+    def komut_gonder(self, komut_id: int, param1=0, param2=0, param3=0,
+                     param4=0, param5=0, param6=0, param7=0):
+        self._kuyruga_ekle(self._komut_gonder_ic,
+                           komut_id, param1, param2, param3,
+                           param4, param5, param6, param7)
+
+    def parametreleri_iste(self):
+        self._kuyruga_ekle(self._parametreleri_iste_ic)
+
+    def parametre_ayarla(self, ad: str, deger: float):
+        self._kuyruga_ekle(self._parametre_ayarla_ic, ad, deger)
+
+    def mod_degistir(self, mod_id: int):
+        self._kuyruga_ekle(self._mod_degistir_ic, mod_id)
+
     def ev_noktasi_sifirla(self):
+        # Sadece Python değişkeni günceller — socket yazımı yok, thread-safe.
         self._ev_lat = self._guncel_lat
         self._ev_lon = self._guncel_lon
 

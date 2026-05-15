@@ -28,7 +28,19 @@
   "ruzgar": {
     "dikkat_ms": 5.5,
     "tehlikeli_ms": 11.1,
-    "kritik_ms": 16.7
+    "kritik_ms": 16.7,
+    "zemin_ref_m": 2.0,
+    "_zemin_ref_aciklama": "Standart zemin referans yüksekliği (m) — genellikle 2.0 m",
+    "hellmann_alpha": 0.14,
+    "_hellmann_aciklama": "Yüzey pürüzlülük katsayısı: 0.14=açık tarla, 0.20=kırsal, 0.25=banliyö, 0.35=kentsel",
+    "trend_pencere_sn": 60,
+    "_trend_aciklama": "Trend hesabı için kayan pencere uzunluğu (saniye)",
+    "gust_esik_ms": 3.0,
+    "_gust_esik_aciklama": "Ham hız EMA'nın kaç m/s üstündeyse gust sayılır",
+    "gust_min_sure_s": 3.0,
+    "_gust_sure_aciklama": "Bu kadar saniye süren gust motorları zorlayabilir — alarm üretilir",
+    "min_gecerli_ms": 2.0,
+    "_min_gecerli_aciklama": "Bu değerin altı EKF gürültü tabanı — Hellmann ve gust işleme durdurulur"
   },
 
   "hiz_kisitlama": {
