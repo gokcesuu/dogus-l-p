@@ -236,10 +236,6 @@ HARITA_HTML = """<!DOCTYPE html>
       <option value="uydu">&#128752; Uydu</option>
       <option value="hibrit">&#127758; Hibrit</option>
       <option value="sokak">&#128506; Sokak</option>
-      <option value="gece">&#127761; Gece</option>
-      <option value="arazi">&#9968; Arazi</option>
-      <option value="topo">&#127956; ESRI Topo</option>
-      <option value="osm">&#128309; OSM</option>
     </select>
     <button onclick="window.location.href='gcs://ucus-yolu-temizle'">U&ccedil;u&#351; Yolunu Temizle</button>
     <button class="green" id="analizBtn" onclick="window.location.href='gcs://guvenli-inis-baslat'">G&uuml;venli &#304;ni&#351; Analizi</button>
@@ -260,40 +256,31 @@ HARITA_HTML = """<!DOCTYPE html>
 <script>
 var map = L.map('map', {zoomControl: true}).setView([39.9, 32.8], 6);
 var _ERR_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-var _ESRI_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
-// Yer adı overlay (uydu + hibrit modda)
-var _yerAdiKatman = L.tileLayer(
-  _ESRI_BASE + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-  {attribution:'', maxZoom:19, opacity:0.85, errorTileUrl:_ERR_TILE});
-var _katmanlar = {
-  uydu:   L.tileLayer(_ESRI_BASE + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            {attribution:'© Esri', maxZoom:19, errorTileUrl:_ERR_TILE}),
-  hibrit: L.tileLayer(_ESRI_BASE + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            {attribution:'© Esri', maxZoom:19, errorTileUrl:_ERR_TILE}),
-  sokak:  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-            {attribution:'© CartoDB', maxZoom:19, errorTileUrl:_ERR_TILE}),
-  gece:   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            {attribution:'© CartoDB', maxZoom:19, errorTileUrl:_ERR_TILE}),
-  arazi:  L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-            {attribution:'© OpenTopoMap', maxZoom:17, errorTileUrl:_ERR_TILE}),
-  topo:   L.tileLayer(_ESRI_BASE + 'World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-            {attribution:'© Esri', maxZoom:19, errorTileUrl:_ERR_TILE}),
-  osm:    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            {attribution:'© OpenStreetMap', maxZoom:19, errorTileUrl:_ERR_TILE})
+var _ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+// Sadece URL konfigürasyonları — L.tileLayer() seçilince oluşturulur (hafıza tasarrufu)
+var _TILE_URL = {
+  uydu:   {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',           attr:'© Esri',    zoom:19},
+  hibrit: {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',           attr:'© Esri',    zoom:19, yerAdi:true},
+  sokak:  {url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attr:'© CartoDB', zoom:19}
 };
-var _aktifKatman = _katmanlar.uydu.addTo(map);
-_yerAdiKatman.addTo(map);   // başlangıçta uydu + yer adları
+var _YERADI_URL = _ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+var _aktifKatman = null;
+var _yerAdiKatman = null;
 
 function katmanDegistir(isim) {
-  map.removeLayer(_aktifKatman);
-  map.removeLayer(_yerAdiKatman);
-  _aktifKatman = _katmanlar[isim].addTo(map);
-  // Yer adı katmanı: uydu veya hibrit modda
-  if (isim === 'uydu' || isim === 'hibrit') _yerAdiKatman.addTo(map);
-  // Dropdown seçimini güncelle
+  // Eskiyi kaldır ve bellekten temizle
+  if (_aktifKatman) { map.removeLayer(_aktifKatman); _aktifKatman = null; }
+  if (_yerAdiKatman) { map.removeLayer(_yerAdiKatman); _yerAdiKatman = null; }
+  // Sadece seçilen katmanı oluştur
+  var cfg = _TILE_URL[isim] || _TILE_URL.uydu;
+  _aktifKatman = L.tileLayer(cfg.url, {attribution:cfg.attr, maxZoom:cfg.zoom, errorTileUrl:_ERR_TILE}).addTo(map);
+  if (cfg.yerAdi) {
+    _yerAdiKatman = L.tileLayer(_YERADI_URL, {attribution:'', maxZoom:19, opacity:0.85, errorTileUrl:_ERR_TILE}).addTo(map);
+  }
   var sel = document.getElementById('katmanSecici');
   if (sel) sel.value = isim;
 }
+katmanDegistir('uydu');   // başlangıçta sadece uydu yükle
 
 var droneIcon = L.divIcon({
   html: '<div style="width:14px;height:14px;background:#f44336;border:2px solid white;border-radius:50%;"></div>',
