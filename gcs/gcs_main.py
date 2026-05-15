@@ -529,6 +529,7 @@ function wpToggle() {
 
 // Harita tıklaması — WP ekle (cizim modu veya wp modu)
 map.on('click', function(e) {
+  _wpCtxKapat();   // Açık context menüyü kapat
   if (!wpModAktif) return;
   var wp = {lat: e.latlng.lat, lon: e.latlng.lng, alt: 50, komut: 'NAV_WAYPOINT'};
   wpListesi.push(wp);
@@ -551,7 +552,7 @@ function _wpMarkerEkle(idx) {
     .addTo(map)
     .bindTooltip(
       'WP ' + (idx + 1) + '<br>' + wp.lat.toFixed(5) + ', ' + wp.lon.toFixed(5)
-      + '<br>İrtifa: ' + wp.alt + ' m<br><i>Sağ tık → sil | Sürükle → taşı</i>',
+      + '<br>İrtifa: ' + wp.alt + ' m<br><i>Sağ tık → menü | Sürükle → taşı</i>',
       {sticky: true}
     );
   m._wpIdx = idx;
@@ -560,14 +561,35 @@ function _wpMarkerEkle(idx) {
     wpListesi[idx].lon = ev.latlng.lng;
     m.setTooltipContent(
       'WP ' + (idx + 1) + '<br>' + ev.latlng.lat.toFixed(5) + ', ' + ev.latlng.lng.toFixed(5)
-      + '<br>İrtifa: ' + wpListesi[idx].alt + ' m<br><i>Sağ tık → sil | Sürükle → taşı</i>'
+      + '<br>İrtifa: ' + wpListesi[idx].alt + ' m<br><i>Sağ tık → menü | Sürükle → taşı</i>'
     );
     _wpYoluGuncelle();
   });
   m.on('dragend', function() { _wpTabloGonder(); });
   m.on('contextmenu', function(ev) {
     L.DomEvent.stopPropagation(ev);
-    wpSil(idx);
+    var _menuIcerik =
+      '<div style="background:#1a2a3a;border:1px solid #2a4060;border-radius:4px;'
+      + 'padding:4px 0;min-width:140px;font-size:12px;font-family:sans-serif;">'
+      + '<div style="padding:2px 8px;color:#aaa;font-size:10px;border-bottom:1px solid #2a4060;margin-bottom:2px;">'
+      + 'WP ' + (idx + 1) + '</div>'
+      + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#ef9a9a;"'
+      + ' onmouseover="this.style.background=\'#2a1a1a\'" onmouseout="this.style.background=\'\'"'
+      + ' onclick="_wpCtxKapat();wpSil(' + idx + ')">🗑 Sil</div>'
+      + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#80cbc4;"'
+      + ' onmouseover="this.style.background=\'#1a2a2a\'" onmouseout="this.style.background=\'\'"'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'LOITER_UNLIMITED\')">🔄 Loiter Yap</div>'
+      + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#a5d6a7;"'
+      + ' onmouseover="this.style.background=\'#1a2a1a\'" onmouseout="this.style.background=\'\'"'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'TAKEOFF\')">🛫 Takeoff Yap</div>'
+      + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#ffcc80;"'
+      + ' onmouseover="this.style.background=\'#2a2a1a\'" onmouseout="this.style.background=\'\'"'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'LAND\')">🛬 Land Yap</div>'
+      + '</div>';
+    _wpCtxPopup = L.popup({closeButton: false, offset: [0, -4], className: 'wp-ctx-popup'})
+      .setLatLng(ev.latlng)
+      .setContent(_menuIcerik)
+      .openOn(map);
   });
   wpMarkerlar.push(m);
 }
@@ -584,9 +606,23 @@ function _wpMarkerlarYenidenNumarala() {
     m._wpIdx = i;
     m.setTooltipContent(
       'WP ' + (i + 1) + '<br>' + wpListesi[i].lat.toFixed(5) + ', ' + wpListesi[i].lon.toFixed(5)
-      + '<br>İrtifa: ' + wpListesi[i].alt + ' m<br><i>Sağ tık → sil | Sürükle → taşı</i>'
+      + '<br>İrtifa: ' + wpListesi[i].alt + ' m<br><i>Sağ tık → menü | Sürükle → taşı</i>'
     );
   });
+}
+
+var _wpCtxPopup = null;
+
+function _wpCtxKapat() {
+  if (_wpCtxPopup) { map.closePopup(_wpCtxPopup); _wpCtxPopup = null; }
+}
+
+function wpKomutDegistir(idx, komut) {
+  if (idx >= 0 && idx < wpListesi.length) {
+    wpListesi[idx].komut = komut;
+    _wpTabloGonder();
+    durumGoster('WP ' + (idx + 1) + ' → ' + komut);
+  }
 }
 
 function wpSil(idx) {
@@ -624,7 +660,7 @@ function wpIrtifaGuncelle(idx, alt) {
       wpMarkerlar[idx].setTooltipContent(
         'WP ' + (idx + 1) + '<br>' + wpListesi[idx].lat.toFixed(5)
         + ', ' + wpListesi[idx].lon.toFixed(5)
-        + '<br>İrtifa: ' + alt + ' m<br><i>Sağ tık → sil | Sürükle → taşı</i>'
+        + '<br>İrtifa: ' + alt + ' m<br><i>Sağ tık → menü | Sürükle → taşı</i>'
       );
     }
   }
@@ -830,6 +866,45 @@ class TerrainAnalizThread(QThread):
             self.tamamlandi.emit(sonuc)
         except Exception as e:
             self.hata.emit(str(e))
+
+
+class TerrainProfilThread(QThread):
+    """
+    WP yolu boyunca SRTM'den zemin yüksekliklerini arka planda çeker.
+    Her WP segmentinde 5 nokta örnekler → mesafe ve yükseklik listesi döndürür.
+    """
+    tamamlandi = Signal(list, list)   # (mesafeler_m, elevasyonlar_m)
+
+    def __init__(self, wp_listesi: list, mesafeler: list):
+        super().__init__()
+        self._wp = list(wp_listesi)
+        self._mes = list(mesafeler)
+
+    def run(self):
+        try:
+            import srtm as _srtm
+            veri = _srtm.get_data()
+            t_mes: list = []
+            t_alt: list = []
+            n = len(self._wp)
+            for i in range(n):
+                w0 = self._wp[i]
+                w1 = self._wp[i + 1] if i + 1 < n else None
+                steps = 5 if w1 else 1
+                for s in range(steps):
+                    f = s / steps
+                    lat = w0['lat'] + (w1['lat'] - w0['lat']) * f if w1 else w0['lat']
+                    lon = w0['lon'] + (w1['lon'] - w0['lon']) * f if w1 else w0['lon']
+                    elev = veri.get_elevation(lat, lon)
+                    if elev is None:
+                        elev = 0
+                    m_val = (self._mes[i] + (self._mes[i + 1] - self._mes[i]) * f
+                             if w1 and i + 1 < len(self._mes) else self._mes[i])
+                    t_mes.append(m_val)
+                    t_alt.append(float(elev))
+            self.tamamlandi.emit(t_mes, t_alt)
+        except Exception:
+            pass   # SRTM ağ hatası veya import hatası — sessizce geç
 
 
 class AlanHazirlikThread(QThread):
@@ -1487,6 +1562,22 @@ class AnaPencere(QMainWindow):
         self._harita.setHtml(HARITA_HTML)
         duz.addWidget(self._harita)
 
+        # ── Görev özet satırı ─────────────────────────────────────────────────
+        _ozet_satir = QHBoxLayout()
+        _ozet_satir.setContentsMargins(4, 2, 4, 2)
+        _ozet_satir.setSpacing(0)
+        self._wp_wp_sayisi  = QLabel("WP: 0")
+        self._wp_mesafe_lbl = QLabel("Toplam: — m")
+        self._wp_sure_lbl   = QLabel("Süre: — dk")
+        _lbl_stil = "color:#7eb8e0; font-size:12px; padding:2px 10px;"
+        for _lbl in (self._wp_wp_sayisi, self._wp_mesafe_lbl, self._wp_sure_lbl):
+            _lbl.setStyleSheet(_lbl_stil)
+        _ozet_satir.addWidget(self._wp_wp_sayisi)
+        _ozet_satir.addWidget(self._wp_mesafe_lbl)
+        _ozet_satir.addWidget(self._wp_sure_lbl)
+        _ozet_satir.addStretch()
+        duz.addLayout(_ozet_satir)
+
         # ── Waypoint tablosu (haritanın altında) ──────────────────────────────
         self._wp_tablo = QTableWidget(0, 5)
         self._wp_tablo.setHorizontalHeaderLabels(["#", "Komut", "Enlem", "Boylam", "İrtifa (m)"])
@@ -1522,12 +1613,20 @@ class AnaPencere(QMainWindow):
                 pen=pg.mkPen('#ffeb3b', width=2),
                 symbol='o', symbolBrush='#ffeb3b', symbolPen=None, symbolSize=7
             )
+            # Zemin profili çizgisi (kahverengi, dolgu)
+            self._irtifa_terrain_cizgi = pg.PlotCurveItem(
+                pen=pg.mkPen('#8b4513', width=1.5),
+                fillLevel=0,
+                brush=pg.mkBrush(139, 69, 19, 80)
+            )
+            self._irtifa_grafik.addItem(self._irtifa_terrain_cizgi)
             duz.addWidget(self._irtifa_grafik)
         except Exception:
             self._irtifa_grafik = None
             self._irtifa_grafik_cizgi = None
+            self._irtifa_terrain_cizgi = None
 
-        self._terrain_thread = None
+        self._terrain_profil_thread: "TerrainProfilThread | None" = None
         return w
 
     # ── Yardımcılar ──────────────────────────────────────────────────────────
@@ -2566,12 +2665,21 @@ class AnaPencere(QMainWindow):
 
     def _wp_profil_guncelle(self):
         """WP listesinden irtifa profil grafiğini günceller (mesafe vs irtifa)."""
+        import math as _math
+        # Özet etiketlerini sıfırla
+        _no_wp = len(self._wp_listesi)
+        if hasattr(self, '_wp_wp_sayisi'):
+            self._wp_wp_sayisi.setText(f"WP: {_no_wp}")
         if not hasattr(self, '_irtifa_grafik') or self._irtifa_grafik is None:
             return
         if not self._wp_listesi:
             self._irtifa_grafik_cizgi.setData([], [])
+            if hasattr(self, '_irtifa_terrain_cizgi') and self._irtifa_terrain_cizgi:
+                self._irtifa_terrain_cizgi.setData([], [])
+            if hasattr(self, '_wp_mesafe_lbl'):
+                self._wp_mesafe_lbl.setText("Toplam: — m")
+                self._wp_sure_lbl.setText("Süre: — dk")
             return
-        import math as _math
         mesafeler = [0.0]
         for i in range(1, len(self._wp_listesi)):
             w0, w1 = self._wp_listesi[i - 1], self._wp_listesi[i]
@@ -2580,6 +2688,27 @@ class AnaPencere(QMainWindow):
             mesafeler.append(mesafeler[-1] + _math.hypot(dlat, dlon))
         altlar = [wp.get('alt', 50) for wp in self._wp_listesi]
         self._irtifa_grafik_cizgi.setData(mesafeler, altlar)
+
+        # Görev özet etiketlerini güncelle
+        toplam_m = mesafeler[-1] if mesafeler else 0.0
+        hiz_ms = float(_cfg.al("hiz_kisitlama.normal_cms", 1000)) / 100.0
+        sure_s = toplam_m / hiz_ms if hiz_ms > 0 else 0
+        if hasattr(self, '_wp_mesafe_lbl'):
+            self._wp_mesafe_lbl.setText(f"Toplam: {toplam_m:.0f} m")
+            self._wp_sure_lbl.setText(f"Süre: ~{sure_s / 60:.1f} dk")
+
+        # Terrain profil thread'ini başlat (SRTM arka planda)
+        if hasattr(self, '_terrain_profil_thread') and self._terrain_profil_thread \
+                and self._terrain_profil_thread.isRunning():
+            return   # Önceki sorgu hâlâ devam ediyor
+        self._terrain_profil_thread = TerrainProfilThread(self._wp_listesi, mesafeler)
+        self._terrain_profil_thread.tamamlandi.connect(self._terrain_profil_geldi)
+        self._terrain_profil_thread.start()
+
+    def _terrain_profil_geldi(self, mes: list, alt: list):
+        """TerrainProfilThread sinyalini alır, terrain çizgisini günceller."""
+        if hasattr(self, '_irtifa_terrain_cizgi') and self._irtifa_terrain_cizgi:
+            self._irtifa_terrain_cizgi.setData(mes, alt)
 
     def _wp_yukle_baslat(self):
         """Waypoint listesini MAVLink MISSION protokolüyle drone'a yükler."""
