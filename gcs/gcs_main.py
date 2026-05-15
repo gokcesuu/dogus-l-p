@@ -956,6 +956,9 @@ class AnaPencere(QMainWindow):
         self._guncel_vibrasyon_mss = 0.0   # VIBRATION RMS m/s² (Cube Orange normal < 15)
         self._guncel_vib_klip     = 0      # IMU saturation sayacı (> 0 = çok yüksek)
         self._ruz_min_gecerli_ms  = float(_cfg.al("ruzgar.min_gecerli_ms", 2.0))
+        # EK3_WIND_P_NSE uyarı takibi
+        self._ek3_yuksek_vib_sayac   = 0   # Arka arkaya yüksek vibrasyon sayısı
+        self._ek3_uyari_verildi      = False  # Bir oturumda bir kez uyar
         # 2 m/s altı tamamen EKF gürültü tabanı — Hellmann ve gust işleme
 
         # RTL izleyici
@@ -2091,9 +2094,44 @@ class AnaPencere(QMainWindow):
         self._log_satiri.update({"ekf_bayrak": bayraklar, "ekf_hata": hata})
 
     def _vibrasyon_guncelle(self, vib_mss: float, klipping: int):
-        """VIBRATION mesajından titreşim seviyesini saklar."""
+        """VIBRATION mesajından titreşim seviyesini saklar.
+        Sürekli yüksek vibrasyonda EK3_WIND_P_NSE ayar önerisi üretir."""
         self._guncel_vibrasyon_mss = vib_mss
         self._guncel_vib_klip      = klipping
+
+        # ── EK3_WIND_P_NSE akıllı uyarı ─────────────────────────────────────
+        # Vibrasyon > 30 m/s² → EKF rüzgar tahmini güvenilmez.
+        # ArduPilot EK3_WIND_P_NSE (varsayılan 0.20) artırılırsa EKF daha
+        # hızlı uyum sağlar; ancak çok yükselirse gürültülü tahmin olur.
+        if vib_mss > 30.0:
+            self._ek3_yuksek_vib_sayac += 1
+        else:
+            self._ek3_yuksek_vib_sayac = max(0, self._ek3_yuksek_vib_sayac - 1)
+
+        # 20 arka arkaya yüksek okuma (~10 sn) → bir kez öner
+        if self._ek3_yuksek_vib_sayac >= 20 and not self._ek3_uyari_verildi:
+            self._ek3_uyari_verildi = True
+            mevcut = self._param_cache.get("EK3_WIND_P_NSE", None)
+            if mevcut is not None:
+                if mevcut < 0.35:
+                    self._mesaj_ekle(3,
+                        f"⚠ Vibrasyon yüksek ({vib_mss:.0f} m/s²) — "
+                        f"EK3_WIND_P_NSE şu an {mevcut:.2f}. "
+                        f"0.40 yapılması rüzgar EKF kalitesini artırır "
+                        f"(Parametreler → EK3_WIND_P_NSE)."
+                    )
+                # else: zaten yeterince yüksek, uyarma
+            else:
+                self._mesaj_ekle(3,
+                    f"⚠ Vibrasyon yüksek ({vib_mss:.0f} m/s²) — "
+                    f"EK3_WIND_P_NSE parametresini 0.40'a artırmayı dene "
+                    f"(rüzgar EKF uyum hızı)."
+                )
+
+        # Vibrasyon normale döndüyse uyarı bayrağını sıfırla (yeni yüksek için tekrar uyarsın)
+        if vib_mss < 15.0:
+            self._ek3_uyari_verildi  = False
+            self._ek3_yuksek_vib_sayac = 0
 
     # ── Parametre sinyal alıcıları ────────────────────────────────────────────
 

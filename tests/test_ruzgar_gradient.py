@@ -648,3 +648,106 @@ class TestIrtifaTavsiyesi:
         # α büyükse üs 1/α küçük → (esik/hiz)^üs daha büyük → h_hedef daha büyük
         if acik is not None and kentsel is not None:
             assert kentsel > acik  # Kentsel arazide daha az alçalmak gerekiyor
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. SIM_WIND_TURB — Türbülans ve Gust Alarm Doğruluğu
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestTurbulansVeGustAlgisi:
+    """
+    SIM_WIND_TURB senaryoları: rastgele varyasyon içinde gust dedektörünün
+    doğru çalışıp çalışmadığını doğrular.
+
+    SIM_WIND_TURB=2 → ±2 m/s rastgele varyasyon (delta < gust_esik=3.0 → alarm yok)
+    SIM_WIND_TURB=5 → ±5 m/s rastgele varyasyon (delta > gust_esik → alarm gerekir)
+    """
+
+    def test_dusuk_turbulans_false_alarm_yok(self):
+        """
+        SIM_WIND_TURB=2 benzeri: sabit 6 m/s zemin + ±2 m/s rastgele varyasyon.
+        EMA filtresi ile varyasyon gust_esik=3.0 altında kalmalı → alarm yok.
+        """
+        import random
+        random.seed(42)
+        baz = 6.0
+        # ±2 m/s türbülans — EMA sayesinde delta nadiren 3.0 üstüne çıkar
+        olcumler = [baz + random.uniform(-2.0, 2.0) for _ in range(60)]
+        alarmlar = _gust_sim(olcumler, ema_baslangic=baz,
+                             gust_esik=3.0, gust_min_sure=3.0)
+        assert len(alarmlar) == 0, f"Yanlış alarm: {alarmlar}"
+
+    def test_yuksek_turbulans_alarm_tetikler(self):
+        """
+        SIM_WIND_TURB=5 benzeri: 8 m/s baz + 5 m/s üstü ani artış bloğu.
+        Dedektör bu sürekli yüksek deltaları gust olarak saymalı → alarm verilmeli.
+        """
+        # 8 m/s sabit × 10 → sonra 14 m/s × 6 (delta ≈ 6 > 3.0, süre 6s > 3s) → alarm
+        olcumler = [8.0] * 10 + [14.0] * 6 + [8.0] * 5
+        alarmlar = _gust_sim(olcumler, ema_baslangic=8.0,
+                             gust_esik=3.0, gust_min_sure=3.0)
+        assert len(alarmlar) >= 1, "Sürekli yüksek delta → alarm bekleniyor"
+
+    def test_ema_turbulans_dampening(self):
+        """
+        EMA (α=0.25) hızlı salınımları yumuşatmalı.
+        Her adımda alternatif 4 m/s ve 12 m/s değişen sinyal için
+        EMA deltası ham değişim olan 8 m/s'den çok daha küçük olmalı.
+        """
+        olcumler = [4.0, 12.0] * 15   # 30 ölçüm, alternatif düşük/yüksek
+        ema = 8.0
+        max_ema_delta = 0.0
+        for hiz in olcumler:
+            ema = 0.25 * hiz + 0.75 * ema
+            delta = hiz - ema
+            max_ema_delta = max(max_ema_delta, delta)
+        # EMA yumuşatma sayesinde delta, ham değişim (8 m/s) dan belirgin şekilde düşük kalmalı
+        assert max_ema_delta < 8.0, f"EMA yeterince yumuşatmadı: {max_ema_delta:.2f}"
+
+    def test_dinamik_esik_yuksek_vibrasyon(self):
+        """
+        Yüksek vibrasyon (>30 m/s²) durumunda gust eşiği iki katına çıkarılırsa
+        (gust_esik=6.0), aynı türbülans seviyesi alarm üretmemeli.
+        """
+        # 8 m/s baz + 5 m/s gust bloğu → delta ~4.x m/s
+        olcumler = [8.0] * 8 + [13.0] * 5 + [8.0] * 4
+        # Normal eşik → alarm var
+        alarmlar_normal  = _gust_sim(olcumler, ema_baslangic=8.0,
+                                     gust_esik=3.0, gust_min_sure=3.0)
+        # Dinamik eşik (vibrasyon yüksek → ×2) → alarm yok
+        alarmlar_dinamik = _gust_sim(olcumler, ema_baslangic=8.0,
+                                     gust_esik=6.0, gust_min_sure=3.0)
+        assert len(alarmlar_normal)  >= 1, "Normal eşikte alarm bekleniyor"
+        assert len(alarmlar_dinamik) == 0, "Dinamik eşikte alarm olmamalı"
+
+    def test_turbulans_trend_etkilememeli(self):
+        """
+        Rastgele ±2 m/s türbülans altındaki sabit baz hız, lineer regresyon
+        trendini sıfır civarında tutmalı (artış veya azalış eğilimi yok).
+        """
+        import random
+        random.seed(99)
+        baz = 7.0
+        t0  = 1000.0
+        gecmis = [(t0 + i, baz + random.uniform(-2.0, 2.0)) for i in range(30)]
+        trend = _trend_hesapla(gecmis)
+        # Sabit baz + simetrik türbülans → trend ≈ 0
+        assert abs(trend) < 0.15, f"Türbülans trendi bozdu: {trend:.4f} m/s/s"
+
+    def test_turbulans_sonrasi_bekleme_onerisi_tetiklenmez(self):
+        """
+        Tehlikeli eşiğin %80 altında kalan türbülanslı EMA,
+        bekleme önerisi koşulunu (eşik × 0.80 ≤ ema < eşik) karşılamamalı.
+        """
+        tehlikeli = 11.1
+        baz       = 6.0
+        # Sinüzoidal ±2 m/s türbülans → max ≈ 8 m/s < 11.1 × 0.80 = 8.88
+        turbulans = [baz + 2.0 * math.sin(i * 0.5) for i in range(30)]
+        ema = baz
+        bekleme_kosulu = False
+        for hiz in turbulans:
+            ema = 0.25 * hiz + 0.75 * ema
+            if tehlikeli * 0.80 <= ema < tehlikeli:
+                bekleme_kosulu = True
+                break
+        assert not bekleme_kosulu, "Düşük türbülansta bekleme önerisi tetiklenmemeli"
