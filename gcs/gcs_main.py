@@ -1158,7 +1158,7 @@ class AnaPencere(QMainWindow):
         ana.setSpacing(4)
         ana.setContentsMargins(6, 6, 6, 6)
 
-        ana.addLayout(self._baglanti_cubugu())
+        ana.addWidget(self._baglanti_cubugu())
 
         # Bağlantı kopma uyarı bandı
         self._uyari_bant = QLabel("⚠  BAĞLANTI KESİLDİ")
@@ -1200,45 +1200,112 @@ class AnaPencere(QMainWindow):
 
     # ── Bağlantı çubuğu ──────────────────────────────────────────────────────
 
-    def _baglanti_cubugu(self) -> QHBoxLayout:
-        duz = QHBoxLayout()
-        duz.addWidget(QLabel("Bağlantı:"))
+    def _baglanti_cubugu(self) -> QWidget:
+        _BADGE = (
+            "border-radius:3px; padding:2px 8px; font-size:10px;"
+        )
+        bar = QWidget()
+        bar.setFixedHeight(46)
+        bar.setStyleSheet(
+            "QWidget#baglantiBar { background:#0a1520; border-bottom:1px solid #1a3a5a; }"
+            "QLabel { background:transparent; }"
+        )
+        bar.setObjectName("baglantiBar")
+        duz = QHBoxLayout(bar)
+        duz.setContentsMargins(10, 6, 10, 6)
+        duz.setSpacing(7)
 
+        # ── Status LED ────────────────────────────────────────────────────────
+        self._durum_led = QLabel("●")
+        self._durum_led.setFont(QFont("Arial", 18))
+        self._durum_led.setStyleSheet("color:#f44336; padding:0 2px;")
+        self._durum_led.setFixedWidth(26)
+        self._durum_led.setToolTip("Bağlantı durumu")
+        duz.addWidget(self._durum_led)
+
+        # ── Bağlantı dizesi ───────────────────────────────────────────────────
         self._baglanti_giris = QLineEdit(_cfg.al("baglanti.varsayilan_dize", "tcp:127.0.0.1:5762"))
-        self._baglanti_giris.setFixedWidth(200)
+        self._baglanti_giris.setFixedWidth(195)
+        self._baglanti_giris.setFixedHeight(30)
+        self._baglanti_giris.setToolTip("tcp:host:port | udp:host:port | /dev/ttyUSB0,115200")
+        self._baglanti_giris.setStyleSheet(
+            "QLineEdit { background:#0d1b2a; color:#7eb8e0; "
+            "border:1px solid #1a4060; border-radius:4px; "
+            "padding:2px 8px; font-family:'Courier New'; font-size:12px; }"
+            "QLineEdit:focus { border-color:#2a6090; }"
+        )
         duz.addWidget(self._baglanti_giris)
 
-        self._baglan_btn = QPushButton("Bağlan")
-        self._baglan_btn.setStyleSheet(BAĞLAN_STILI)
+        # ── Bağlan butonu ─────────────────────────────────────────────────────
+        self._baglan_btn = QPushButton("⚡  BAĞLAN")
+        self._baglan_btn.setFixedSize(100, 30)
+        self._baglan_btn.setStyleSheet(
+            "QPushButton { background:#1b5e20; color:#a5d6a7; "
+            "border:1px solid #2e7d32; border-radius:4px; "
+            "font-weight:bold; font-size:11px; }"
+            "QPushButton:hover { background:#2e7d32; }"
+            "QPushButton:pressed { background:#145214; }"
+        )
         self._baglan_btn.clicked.connect(self._baglan_tikla)
         duz.addWidget(self._baglan_btn)
 
-        self._kes_btn = QPushButton("Kes")
+        # ── Kes butonu ────────────────────────────────────────────────────────
+        self._kes_btn = QPushButton("✕  KES")
+        self._kes_btn.setFixedSize(72, 30)
+        self._kes_btn.setStyleSheet(
+            "QPushButton { background:#1a1a1a; color:#555; "
+            "border:1px solid #2a2a2a; border-radius:4px; font-size:11px; }"
+            "QPushButton:enabled { color:#ef9a9a; border-color:#5a2a2a; "
+            "background:#2a1a1a; }"
+            "QPushButton:enabled:hover { background:#3a2020; }"
+        )
         self._kes_btn.clicked.connect(self._kes_tikla)
         self._kes_btn.setEnabled(False)
         duz.addWidget(self._kes_btn)
 
-        self._rapor_btn = QPushButton("📊 Rapor")
+        # ── Rapor ─────────────────────────────────────────────────────────────
+        self._rapor_btn = QPushButton("📊")
+        self._rapor_btn.setFixedSize(32, 30)
         self._rapor_btn.setToolTip("Son uçuş için HTML rapor oluştur ve tarayıcıda aç")
+        self._rapor_btn.setStyleSheet(
+            "QPushButton { background:#1a2a3a; border:1px solid #2a4060; "
+            "border-radius:4px; font-size:15px; }"
+            "QPushButton:hover { background:#2a3a5a; }"
+        )
         self._rapor_btn.clicked.connect(self._rapor_tikla)
         duz.addWidget(self._rapor_btn)
 
+        # ── Ayraç ─────────────────────────────────────────────────────────────
+        _sep = QLabel("│")
+        _sep.setStyleSheet("color:#1a4060; font-size:20px; padding:0 4px;")
+        duz.addWidget(_sep)
+
         duz.addStretch()
 
-        self._mod_lbl = QLabel("MOD: --")
-        self._mod_lbl.setFont(QFont("Arial", 11, QFont.Bold))
+        # ── MOD rozeti ────────────────────────────────────────────────────────
+        self._mod_lbl = QLabel("MOD: —")
+        self._mod_lbl.setFont(QFont("Arial", 10, QFont.Bold))
+        self._mod_lbl.setStyleSheet(
+            f"color:#7eb8e0; background:#0d1b2a; border:1px solid #1a4060; {_BADGE}"
+        )
         duz.addWidget(self._mod_lbl)
 
+        # ── ARM rozeti ────────────────────────────────────────────────────────
         self._arm_lbl = QLabel("DISARM")
-        self._arm_lbl.setFont(QFont("Arial", 11, QFont.Bold))
-        self._arm_lbl.setStyleSheet("color: #888888;")
+        self._arm_lbl.setFont(QFont("Arial", 10, QFont.Bold))
+        self._arm_lbl.setStyleSheet(
+            f"color:#666; background:#111; border:1px solid #2a2a2a; {_BADGE}"
+        )
         duz.addWidget(self._arm_lbl)
 
-        self._ekf_lbl = QLabel("EKF: --")
-        self._ekf_lbl.setStyleSheet("color: #888888;")
+        # ── EKF rozeti ────────────────────────────────────────────────────────
+        self._ekf_lbl = QLabel("EKF: —")
+        self._ekf_lbl.setStyleSheet(
+            f"color:#666; background:#111; border:1px solid #2a2a2a; {_BADGE}"
+        )
         duz.addWidget(self._ekf_lbl)
 
-        return duz
+        return bar
 
     # ── Uçuş sekmesi ─────────────────────────────────────────────────────────
 
@@ -1392,18 +1459,46 @@ class AnaPencere(QMainWindow):
             gd.addWidget(lb)
         duz.addWidget(gps)
 
-        # Rüzgar
+        # Rüzgar — yeniden tasarım
         ruz = QGroupBox("Rüzgar")
         rd  = QVBoxLayout(ruz)
-        self._ruzgar = RuzgarGostergesi()
-        rd.addWidget(self._ruzgar)
-        self._ruzgar_zemin_lbl = QLabel("Zemin: — km/h →")
-        self._ruzgar_zemin_lbl.setStyleSheet(
-            "color:#aaa; font-size:11px; margin-top:2px;"
-        )
-        self._ruzgar_zemin_lbl.setAlignment(Qt.AlignCenter)
-        rd.addWidget(self._ruzgar_zemin_lbl)
+        rd.setSpacing(4)
+        rd.setContentsMargins(8, 6, 8, 6)
+
+        # Üst satır: durum rozeti + hız sayısı
+        _r_ust = QHBoxLayout()
+        _r_ust.setSpacing(4)
+        self._ruz_seviye_lbl = QLabel("● —")
+        self._ruz_seviye_lbl.setStyleSheet("color:#555; font-weight:bold; font-size:12px;")
+        _r_ust.addWidget(self._ruz_seviye_lbl)
+        _r_ust.addStretch()
+        self._ruz_hiz_lbl = QLabel("—  m/s")
+        self._ruz_hiz_lbl.setStyleSheet("color:#7eb8e0; font-size:16px; font-weight:bold;")
+        self._ruz_hiz_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        _r_ust.addWidget(self._ruz_hiz_lbl)
+        rd.addLayout(_r_ust)
+
+        # İnce yatay çizgi
+        _ayrac = QLabel()
+        _ayrac.setFixedHeight(1)
+        _ayrac.setStyleSheet("background:#1a3a5a; margin:1px 0;")
+        rd.addWidget(_ayrac)
+
+        # Alt satır: yön + zemin
+        _r_alt = QHBoxLayout()
+        _r_alt.setSpacing(4)
+        self._ruz_yon_lbl = QLabel("Yön: —°")
+        self._ruz_yon_lbl.setStyleSheet("color:#888; font-size:11px;")
+        _r_alt.addWidget(self._ruz_yon_lbl)
+        _r_alt.addStretch()
+        self._ruzgar_zemin_lbl = QLabel("Zemin: — km/h")
+        self._ruzgar_zemin_lbl.setStyleSheet("color:#7eb8e0; font-size:11px;")
+        self._ruzgar_zemin_lbl.setAlignment(Qt.AlignRight)
+        _r_alt.addWidget(self._ruzgar_zemin_lbl)
+        rd.addLayout(_r_alt)
+
         duz.addWidget(ruz)
+        self._ruzgar = None   # canvas widget artık kullanılmıyor
 
         return duz
 
@@ -1759,12 +1854,17 @@ class AnaPencere(QMainWindow):
 
     def _hb_guncelle(self, mod_id: int, arm: bool):
         self._mod_lbl.setText(f"MOD: {UÇUŞ_MODLARI.get(mod_id, f'MOD-{mod_id}')}")
+        _b = "border-radius:3px; padding:2px 8px; font-size:10px;"
         if arm:
-            self._arm_lbl.setText("ARMED")
-            self._arm_lbl.setStyleSheet("color: #f44336; font-weight: bold;")
+            self._arm_lbl.setText("● ARMED")
+            self._arm_lbl.setStyleSheet(
+                f"color:#f44336; background:#2a0a0a; border:1px solid #6a1a1a; font-weight:bold; {_b}"
+            )
         else:
             self._arm_lbl.setText("DISARM")
-            self._arm_lbl.setStyleSheet("color: #888888;")
+            self._arm_lbl.setStyleSheet(
+                f"color:#666; background:#111; border:1px solid #2a2a2a; {_b}"
+            )
         # RTL modu yeni başladıysa izleyiciyi başlat
         if mod_id == 6 and self._son_mod_id != 6:
             self._rtl_izleyici.baslat(self._guncel_eve_uzaklik)
@@ -2028,13 +2128,13 @@ class AnaPencere(QMainWindow):
 
         # Kapı A: EKF tutum + yatay hız kilitli değilse rüzgar tahmini güvenilmez
         if not self._ekf_ruzgar_gecerli:
-            self._ruzgar.guncelle(hiz * 3.6, yon)          # Widget'ı yine de göster
+            self._ruz_panel_guncelle(hiz, yon)              # Panel'i yine de göster
             self._log_satiri.update({"ruzgar_ms": hiz, "ruzgar_yon": yon})
             return  # Gradient / gust / trend hesaplama
 
         # Kapı B: IMU klipleme varsa titreşim çok yüksek → EKF wind verisi bozuk
         if self._guncel_vib_klip > 0:
-            self._ruzgar.guncelle(hiz * 3.6, yon)
+            self._ruz_panel_guncelle(hiz, yon)
             self._log_satiri.update({"ruzgar_ms": hiz, "ruzgar_yon": yon})
             return
 
@@ -2042,13 +2142,13 @@ class AnaPencere(QMainWindow):
         if hiz < self._ruz_min_gecerli_ms:
             self._ruz_zemin_ms = 0.0
             self._ruz_trend_ms_per_s = 0.0
-            self._ruzgar.guncelle(hiz * 3.6, yon)
+            self._ruz_panel_guncelle(hiz, yon)
             self._log_satiri.update({"ruzgar_ms": hiz, "ruzgar_yon": yon})
             self._ruzgar_zemin_lbl.setText("Zemin: <2 m/s (gürültü)")
             return
 
-        # ── 1. Widget + ham log ────────────────────────────────────────────────
-        self._ruzgar.guncelle(hiz * 3.6, yon)
+        # ── 1. Panel + ham log ────────────────────────────────────────────────
+        self._ruz_panel_guncelle(hiz, yon)
         self._log_satiri.update({"ruzgar_ms": hiz, "ruzgar_yon": yon})
 
         # ── 2. EMA filtresi ────────────────────────────────────────────────────
@@ -2107,6 +2207,33 @@ class AnaPencere(QMainWindow):
         if z < self._ruz_tehlikeli_ms * 0.85:
             self._ruzgar_tehlikeli_gonderildi = False
             self._ruzgar_kritik_gonderildi   = False
+
+    def _ruz_panel_guncelle(self, hiz_ms: float, yon: float):
+        """Rüzgar panelindeki etiketleri (hız, seviye, yön) günceller."""
+        if not hasattr(self, '_ruz_hiz_lbl') or self._ruz_hiz_lbl is None:
+            return
+        hiz_kmh = hiz_ms * 3.6
+        # Renk + seviye metni
+        if hiz_kmh < 20:
+            renk, seviye = "#4caf50", "NORMAL"
+        elif hiz_kmh < 40:
+            renk, seviye = "#ffc107", "DİKKAT"
+        elif hiz_kmh < 60:
+            renk, seviye = "#ff9800", "TEHLİKELİ"
+        else:
+            renk, seviye = "#f44336", "KRİTİK"
+        self._ruz_seviye_lbl.setText(f"● {seviye}")
+        self._ruz_seviye_lbl.setStyleSheet(
+            f"color:{renk}; font-weight:bold; font-size:12px;"
+        )
+        self._ruz_hiz_lbl.setText(f"{hiz_ms:.1f}  m/s")
+        self._ruz_hiz_lbl.setStyleSheet(
+            f"color:{renk}; font-size:16px; font-weight:bold;"
+        )
+        # Yön metni (sekiz yön)
+        _yonler = ["K", "KD", "D", "GD", "G", "GB", "B", "KB"]
+        _yon_idx = int((yon + 22.5) / 45) % 8
+        self._ruz_yon_lbl.setText(f"Yön: {yon:.0f}°  {_yonler[_yon_idx]}")
 
     def _ruzgar_trend_hesapla(self) -> float:
         """
@@ -2301,12 +2428,17 @@ class AnaPencere(QMainWindow):
         self._ekf_bayraklar   = bayraklar
         # Bit 0 (tutum) + Bit 1 (yatay hız) her ikisi de set ise rüzgar tahmini güvenilir
         self._ekf_ruzgar_gecerli = bool(bayraklar & 0x0001) and bool(bayraklar & 0x0002)
+        _b = "border-radius:3px; padding:2px 8px; font-size:10px;"
         if bayraklar & 0x01F:
             self._ekf_lbl.setText(f"EKF: OK ({hata:.2f})")
-            self._ekf_lbl.setStyleSheet("color: #4caf50;")
+            self._ekf_lbl.setStyleSheet(
+                f"color:#4caf50; background:#0a1e0a; border:1px solid #1a5a1a; {_b}"
+            )
         else:
             self._ekf_lbl.setText("EKF: HATA")
-            self._ekf_lbl.setStyleSheet("color: #f44336; font-weight: bold;")
+            self._ekf_lbl.setStyleSheet(
+                f"color:#f44336; background:#1e0a0a; border:1px solid #5a1a1a; font-weight:bold; {_b}"
+            )
         self._log_satiri.update({"ekf_bayrak": bayraklar, "ekf_hata": hata})
 
     def _vibrasyon_guncelle(self, vib_mss: float, klipping: int):
@@ -3212,6 +3344,8 @@ class AnaPencere(QMainWindow):
         self._durum_bar.setStyleSheet(
             f"QStatusBar {{ background-color: #0a1520; color: {renk}; }}"
         )
+        if hasattr(self, '_durum_led'):
+            self._durum_led.setStyleSheet(f"color:{renk}; padding:0 2px;")
 
     def showEvent(self, event):
         super().showEvent(event)
