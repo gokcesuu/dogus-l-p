@@ -229,9 +229,18 @@ HARITA_HTML = """<!DOCTYPE html>
 <body>
 <div id="map"></div>
 <div id="toolbar">
-    <button id="katman_uydu"  style="border-color:#4caf50;" onclick="katmanDegistir('uydu')"  title="Uydu görüntüsü">&#128752; Uydu</button>
-    <button id="katman_sokak" style="border-color:#555;"    onclick="katmanDegistir('sokak')" title="Sokak haritası">&#128506; Sokak</button>
-    <button id="katman_arazi" style="border-color:#555;"    onclick="katmanDegistir('arazi')" title="Arazi / topografik">&#9968; Arazi</button>
+    <select id="katmanSecici" onchange="katmanDegistir(this.value)"
+      style="background:#1a2a3a;color:#7eb8e0;border:1px solid #2a4060;border-radius:3px;
+             padding:3px 8px;font-size:12px;cursor:pointer;height:28px;"
+      title="Harita türünü değiştir">
+      <option value="uydu">&#128752; Uydu</option>
+      <option value="hibrit">&#127758; Hibrit</option>
+      <option value="sokak">&#128506; Sokak</option>
+      <option value="gece">&#127761; Gece</option>
+      <option value="arazi">&#9968; Arazi</option>
+      <option value="topo">&#127956; ESRI Topo</option>
+      <option value="osm">&#128309; OSM</option>
+    </select>
     <button onclick="window.location.href='gcs://ucus-yolu-temizle'">U&ccedil;u&#351; Yolunu Temizle</button>
     <button class="green" id="analizBtn" onclick="window.location.href='gcs://guvenli-inis-baslat'">G&uuml;venli &#304;ni&#351; Analizi</button>
     <button onclick="window.location.href='gcs://analiz-temizle'">Analizi Temizle</button>
@@ -251,26 +260,39 @@ HARITA_HTML = """<!DOCTYPE html>
 <script>
 var map = L.map('map', {zoomControl: true}).setView([39.9, 32.8], 6);
 var _ERR_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+var _ESRI_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+// Yer adı overlay (uydu + hibrit modda)
+var _yerAdiKatman = L.tileLayer(
+  _ESRI_BASE + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+  {attribution:'', maxZoom:19, opacity:0.85, errorTileUrl:_ERR_TILE});
 var _katmanlar = {
-  uydu:   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {attribution:'© Esri', maxZoom:19, errorTileUrl:_ERR_TILE}),
-  sokak:  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {attribution:'© CartoDB', maxZoom:19, errorTileUrl:_ERR_TILE}),
-  arazi:  L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {attribution:'© OpenTopoMap', maxZoom:17, errorTileUrl:_ERR_TILE})
+  uydu:   L.tileLayer(_ESRI_BASE + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {attribution:'© Esri', maxZoom:19, errorTileUrl:_ERR_TILE}),
+  hibrit: L.tileLayer(_ESRI_BASE + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {attribution:'© Esri', maxZoom:19, errorTileUrl:_ERR_TILE}),
+  sokak:  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+            {attribution:'© CartoDB', maxZoom:19, errorTileUrl:_ERR_TILE}),
+  gece:   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+            {attribution:'© CartoDB', maxZoom:19, errorTileUrl:_ERR_TILE}),
+  arazi:  L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+            {attribution:'© OpenTopoMap', maxZoom:17, errorTileUrl:_ERR_TILE}),
+  topo:   L.tileLayer(_ESRI_BASE + 'World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+            {attribution:'© Esri', maxZoom:19, errorTileUrl:_ERR_TILE}),
+  osm:    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            {attribution:'© OpenStreetMap', maxZoom:19, errorTileUrl:_ERR_TILE})
 };
 var _aktifKatman = _katmanlar.uydu.addTo(map);
-// Üstüne yer adları (uydu modunda aktif)
-var _yerAdiKatman = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {attribution:'', maxZoom:19, opacity:0.8});
-_yerAdiKatman.addTo(map);
+_yerAdiKatman.addTo(map);   // başlangıçta uydu + yer adları
 
 function katmanDegistir(isim) {
   map.removeLayer(_aktifKatman);
+  map.removeLayer(_yerAdiKatman);
   _aktifKatman = _katmanlar[isim].addTo(map);
-  // Yer adları sadece uydu modunda
-  if (isim === 'uydu') { if (!map.hasLayer(_yerAdiKatman)) _yerAdiKatman.addTo(map); }
-  else { map.removeLayer(_yerAdiKatman); }
-  ['uydu','sokak','arazi'].forEach(function(k) {
-    var btn = document.getElementById('katman_'+k);
-    if (btn) btn.style.borderColor = (k === isim) ? '#4caf50' : '#555';
-  });
+  // Yer adı katmanı: uydu veya hibrit modda
+  if (isim === 'uydu' || isim === 'hibrit') _yerAdiKatman.addTo(map);
+  // Dropdown seçimini güncelle
+  var sel = document.getElementById('katmanSecici');
+  if (sel) sel.value = isim;
 }
 
 var droneIcon = L.divIcon({
