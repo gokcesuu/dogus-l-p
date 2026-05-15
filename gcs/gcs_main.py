@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QLineEdit, QTextEdit, QGridLayout, QHBoxLayout, QVBoxLayout,
     QGroupBox, QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QProgressBar, QMessageBox, QAbstractItemView,
-    QFileDialog, QStackedWidget,
+    QFileDialog, QStackedWidget, QComboBox,
 )
 from PyQt5.QtCore import Qt, QDateTime, QTimer, QThread, pyqtSignal as Signal
 from PyQt5.QtGui import QFont, QColor
@@ -229,6 +229,9 @@ HARITA_HTML = """<!DOCTYPE html>
 <body>
 <div id="map"></div>
 <div id="toolbar">
+    <button id="katman_uydu"  style="border-color:#4caf50;" onclick="katmanDegistir('uydu')"  title="Uydu görüntüsü">&#128752; Uydu</button>
+    <button id="katman_sokak" style="border-color:#555;"    onclick="katmanDegistir('sokak')" title="Sokak haritası">&#128506; Sokak</button>
+    <button id="katman_arazi" style="border-color:#555;"    onclick="katmanDegistir('arazi')" title="Arazi / topografik">&#9968; Arazi</button>
     <button onclick="window.location.href='gcs://ucus-yolu-temizle'">U&ccedil;u&#351; Yolunu Temizle</button>
     <button class="green" id="analizBtn" onclick="window.location.href='gcs://guvenli-inis-baslat'">G&uuml;venli &#304;ni&#351; Analizi</button>
     <button onclick="window.location.href='gcs://analiz-temizle'">Analizi Temizle</button>
@@ -247,17 +250,28 @@ HARITA_HTML = """<!DOCTYPE html>
 <div id="durum"></div>
 <script>
 var map = L.map('map', {zoomControl: true}).setView([39.9, 32.8], 6);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-  attribution: '© Esri',
-  maxZoom: 19,
-  errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
-}).addTo(map);
-// Üstüne yer adları katmanı
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-  attribution: '',
-  maxZoom: 19,
-  opacity: 0.8
-}).addTo(map);
+var _ERR_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+var _katmanlar = {
+  uydu:   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {attribution:'© Esri', maxZoom:19, errorTileUrl:_ERR_TILE}),
+  sokak:  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {attribution:'© CartoDB', maxZoom:19, errorTileUrl:_ERR_TILE}),
+  arazi:  L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {attribution:'© OpenTopoMap', maxZoom:17, errorTileUrl:_ERR_TILE})
+};
+var _aktifKatman = _katmanlar.uydu.addTo(map);
+// Üstüne yer adları (uydu modunda aktif)
+var _yerAdiKatman = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {attribution:'', maxZoom:19, opacity:0.8});
+_yerAdiKatman.addTo(map);
+
+function katmanDegistir(isim) {
+  map.removeLayer(_aktifKatman);
+  _aktifKatman = _katmanlar[isim].addTo(map);
+  // Yer adları sadece uydu modunda
+  if (isim === 'uydu') { if (!map.hasLayer(_yerAdiKatman)) _yerAdiKatman.addTo(map); }
+  else { map.removeLayer(_yerAdiKatman); }
+  ['uydu','sokak','arazi'].forEach(function(k) {
+    var btn = document.getElementById('katman_'+k);
+    if (btn) btn.style.borderColor = (k === isim) ? '#4caf50' : '#555';
+  });
+}
 
 var droneIcon = L.divIcon({
   html: '<div style="width:14px;height:14px;background:#f44336;border:2px solid white;border-radius:50%;"></div>',
@@ -507,7 +521,7 @@ function wpToggle() {
 // Harita tıklaması — WP ekle (cizim modu veya wp modu)
 map.on('click', function(e) {
   if (!wpModAktif) return;
-  var wp = {lat: e.latlng.lat, lon: e.latlng.lng, alt: 50};
+  var wp = {lat: e.latlng.lat, lon: e.latlng.lng, alt: 50, komut: 'NAV_WAYPOINT'};
   wpListesi.push(wp);
   _wpMarkerEkle(wpListesi.length - 1);
   _wpYoluGuncelle();
@@ -612,6 +626,7 @@ function wpListeYukle(wpJsonStr) {
   wpTemizle();
   var liste = JSON.parse(wpJsonStr);
   liste.forEach(function(wp) {
+    if (!wp.komut) wp.komut = 'NAV_WAYPOINT';
     wpListesi.push(wp);
     _wpMarkerEkle(wpListesi.length - 1);
   });
@@ -914,6 +929,7 @@ class AnaPencere(QMainWindow):
         self._log_timer = QTimer()
         self._log_timer.setInterval(1000)
         self._log_timer.timeout.connect(self._log_yaz)
+        self._log_timer.timeout.connect(self._ucus_grafik_guncelle)
         self._ev_lon = 0.0
         self._bagli = False
 
@@ -1010,6 +1026,18 @@ class AnaPencere(QMainWindow):
                 self._mesaj_ekle(3, f"Alan verisi yüklenemedi: {_e}")
 
         self._durum_guncelle("Bağlantı bekleniyor…", "#ffc107")
+
+        # ── TTS sesli uyarı ────────────────────────────────────────────────────
+        self._tts_aktif = False
+        try:
+            import pyttsx3 as _pyttsx3
+            import threading as _threading
+            self._tts_motor = _pyttsx3.init()
+            self._tts_motor.setProperty('rate', 155)
+            self._tts_aktif = True
+        except Exception:
+            self._tts_motor = None
+        self._son_bat_uyari = 0   # batarya uyarı debounce (mod ID)
 
     # ── Sinyaller ────────────────────────────────────────────────────────────
 
@@ -1152,8 +1180,50 @@ class AnaPencere(QMainWindow):
         ust.addLayout(self._sag_panel(), 2)
 
         ana.addLayout(ust, 4)
+
+        # ── Gerçek zamanlı uçuş grafikleri ────────────────────────────────────
+        try:
+            import pyqtgraph as pg
+            pg.setConfigOptions(antialias=True, background='#111827', foreground='#7eb8e0')
+            self._ucus_grafik = pg.PlotWidget()
+            self._ucus_grafik.setMaximumHeight(100)
+            self._ucus_grafik.setMinimumHeight(70)
+            self._ucus_grafik.showGrid(x=True, y=True, alpha=0.2)
+            self._ucus_grafik.addLegend(offset=(10, 10))
+            self._ucus_grafik.getPlotItem().getAxis('left').setTextPen('#7eb8e0')
+            self._ucus_grafik.getPlotItem().getAxis('bottom').setTextPen('#7eb8e0')
+            self._ucus_irtifa_cizgi = self._ucus_grafik.plot(
+                name="İrtifa(m)", pen=pg.mkPen('#4fc3f7', width=2))
+            self._ucus_hiz_cizgi = self._ucus_grafik.plot(
+                name="Hız(m/s)", pen=pg.mkPen('#81c784', width=2))
+            self._ucus_bat_cizgi = self._ucus_grafik.plot(
+                name="Bat(%)", pen=pg.mkPen('#ffb74d', width=2))
+            ana.addWidget(self._ucus_grafik)
+            # Veri buffer'ları — son 5 dk (300 örnek @ 1Hz)
+            self._grafik_t:       deque = deque(maxlen=300)
+            self._grafik_irtifa:  deque = deque(maxlen=300)
+            self._grafik_hiz:     deque = deque(maxlen=300)
+            self._grafik_batarya: deque = deque(maxlen=300)
+            self._grafik_t0 = time.monotonic()
+        except Exception:
+            self._ucus_grafik = None
+
         ana.addWidget(self._mesaj_logu_paneli(), 1)
         return w
+
+    def _ucus_grafik_guncelle(self):
+        """VFR/batarya verisi gelince uçuş grafiğine nokta ekler (1 Hz'de çağrılır)."""
+        if not hasattr(self, '_ucus_grafik') or self._ucus_grafik is None:
+            return
+        t_sn = time.monotonic() - self._grafik_t0
+        self._grafik_t.append(t_sn)
+        self._grafik_irtifa.append(self._guncel_irtifa)
+        self._grafik_hiz.append(self._log_satiri.get("hiz", 0.0))
+        self._grafik_batarya.append(float(self._guncel_batarya_yuzde))
+        ts = list(self._grafik_t)
+        self._ucus_irtifa_cizgi.setData(ts, list(self._grafik_irtifa))
+        self._ucus_hiz_cizgi.setData(ts, list(self._grafik_hiz))
+        self._ucus_bat_cizgi.setData(ts, list(self._grafik_batarya))
 
     def _yapay_ufuk_paneli(self) -> QGroupBox:
         grp = QGroupBox("Yapay Ufuk")
@@ -1409,9 +1479,11 @@ class AnaPencere(QMainWindow):
         duz.addWidget(self._harita)
 
         # ── Waypoint tablosu (haritanın altında) ──────────────────────────────
-        self._wp_tablo = QTableWidget(0, 4)
-        self._wp_tablo.setHorizontalHeaderLabels(["#", "Enlem", "Boylam", "İrtifa (m)"])
+        self._wp_tablo = QTableWidget(0, 5)
+        self._wp_tablo.setHorizontalHeaderLabels(["#", "Komut", "Enlem", "Boylam", "İrtifa (m)"])
         self._wp_tablo.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self._wp_tablo.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self._wp_tablo.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self._wp_tablo.setMaximumHeight(145)
         self._wp_tablo.setMinimumHeight(80)
         self._wp_tablo.setEditTriggers(QAbstractItemView.DoubleClicked)
@@ -1424,6 +1496,27 @@ class AnaPencere(QMainWindow):
         )
         self._wp_tablo.itemChanged.connect(self._wp_tablo_degisti)
         duz.addWidget(self._wp_tablo)
+
+        # ── İrtifa profil grafiği ──────────────────────────────────────────────
+        try:
+            import pyqtgraph as pg
+            pg.setConfigOptions(antialias=True, background='#1a2a3a', foreground='#7eb8e0')
+            self._irtifa_grafik = pg.PlotWidget()
+            self._irtifa_grafik.setMaximumHeight(90)
+            self._irtifa_grafik.setMinimumHeight(60)
+            self._irtifa_grafik.setLabel('left', 'İrt (m)', color='#7eb8e0', size='10pt')
+            self._irtifa_grafik.setLabel('bottom', 'Mesafe (m)', color='#7eb8e0', size='10pt')
+            self._irtifa_grafik.showGrid(x=True, y=True, alpha=0.25)
+            self._irtifa_grafik.getPlotItem().getAxis('left').setTextPen('#7eb8e0')
+            self._irtifa_grafik.getPlotItem().getAxis('bottom').setTextPen('#7eb8e0')
+            self._irtifa_grafik_cizgi = self._irtifa_grafik.plot(
+                pen=pg.mkPen('#ffeb3b', width=2),
+                symbol='o', symbolBrush='#ffeb3b', symbolPen=None, symbolSize=7
+            )
+            duz.addWidget(self._irtifa_grafik)
+        except Exception:
+            self._irtifa_grafik = None
+            self._irtifa_grafik_cizgi = None
 
         self._terrain_thread = None
         return w
@@ -1570,6 +1663,10 @@ class AnaPencere(QMainWindow):
             self._mesaj_ekle(4, "RTL başlatıldı — ilerleme izleniyor.")
         elif mod_id != 6:
             self._rtl_izleyici.durdur()
+        # Mod değişiminde sesli uyarı
+        if mod_id != self._son_mod_id:
+            mod_adi = UÇUŞ_MODLARI.get(mod_id, f"Mod {mod_id}")
+            self._sesli_uyan(f"Mod {mod_adi}")
         self._son_mod_id = mod_id
 
     def _batarya_guncelle(self, volt: float, amper: float, yuzde: int):
@@ -1584,6 +1681,17 @@ class AnaPencere(QMainWindow):
             yuzde_str = f"{yuzde}%" if yuzde >= 0 else "?%"
             self._batarya_detay.setText(f"{volt:.2f}V  {amper:.2f}A  {yuzde_str}  Tahmini süre: --")
         self._log_satiri.update({"bat_volt": volt, "bat_amper": amper, "bat_yuzde": yuzde})
+        # Sesli batarya uyarısı (her seviye bir kez)
+        if yuzde > 0:
+            if yuzde <= 8 and self._son_bat_uyari != 8:
+                self._son_bat_uyari = 8
+                self._sesli_uyan("Batarya kritik, acil inis yapın")
+            elif yuzde <= 15 and self._son_bat_uyari not in (8, 15):
+                self._son_bat_uyari = 15
+                self._sesli_uyan("Batarya kritik")
+            elif yuzde <= 25 and self._son_bat_uyari not in (8, 15, 25):
+                self._son_bat_uyari = 25
+                self._sesli_uyan("Batarya düşük")
 
     def _vfr_guncelle(self, irtifa: float, hiz: float, dikey: float, uzaklik: float):
         self._guncel_irtifa      = irtifa
@@ -2379,6 +2487,9 @@ class AnaPencere(QMainWindow):
 
     # ── Waypoint Görev Planlama ───────────────────────────────────────────────
 
+    _WP_KOMUTLAR = ["NAV_WAYPOINT", "TAKEOFF", "LAND", "LOITER_TURNS",
+                    "LOITER_TIME", "LOITER_UNLIMITED", "RTL", "DELAY"]
+
     def _wp_tablo_yenile(self):
         """Python waypoint listesinden Qt tablosunu yeniden çizer."""
         if not hasattr(self, '_wp_tablo'):
@@ -2387,23 +2498,34 @@ class AnaPencere(QMainWindow):
         self._wp_tablo.setRowCount(0)
         for i, wp in enumerate(self._wp_listesi):
             self._wp_tablo.insertRow(i)
+            # Sütun 0 — sıra no
             no = QTableWidgetItem(str(i + 1))
             no.setFlags(no.flags() & ~Qt.ItemIsEditable)
             no.setTextAlignment(Qt.AlignCenter)
+            # Sütun 2,3 — lat/lon (salt okunur)
             lat = QTableWidgetItem(f"{wp['lat']:.6f}")
             lat.setFlags(lat.flags() & ~Qt.ItemIsEditable)
             lon = QTableWidgetItem(f"{wp['lon']:.6f}")
             lon.setFlags(lon.flags() & ~Qt.ItemIsEditable)
+            # Sütun 4 — irtifa (düzenlenebilir)
             alt = QTableWidgetItem(str(int(wp.get('alt', 50))))
             self._wp_tablo.setItem(i, 0, no)
-            self._wp_tablo.setItem(i, 1, lat)
-            self._wp_tablo.setItem(i, 2, lon)
-            self._wp_tablo.setItem(i, 3, alt)
+            self._wp_tablo.setItem(i, 2, lat)
+            self._wp_tablo.setItem(i, 3, lon)
+            self._wp_tablo.setItem(i, 4, alt)
+            # Sütun 1 — komut tipi (QComboBox)
+            combo = QComboBox()
+            combo.addItems(self._WP_KOMUTLAR)
+            combo.setCurrentText(wp.get("komut", "NAV_WAYPOINT"))
+            combo.setStyleSheet("background:#1a2a3a; color:#ddd; font-size:11px;")
+            combo.currentTextChanged.connect(lambda t, idx=i: self._wp_komut_degisti(idx, t))
+            self._wp_tablo.setCellWidget(i, 1, combo)
         self._wp_tablo.blockSignals(False)
+        self._wp_profil_guncelle()
 
     def _wp_tablo_degisti(self, item):
         """Kullanıcı tabloda irtifayı çift tıklayıp değiştirince haritayı güncelle."""
-        if item.column() != 3:
+        if item.column() != 4:   # Sütun 4 = İrtifa
             return
         idx = item.row()
         try:
@@ -2411,8 +2533,44 @@ class AnaPencere(QMainWindow):
             if idx < len(self._wp_listesi):
                 self._wp_listesi[idx]['alt'] = alt
                 self._js(f"wpIrtifaGuncelle({idx}, {alt});")
+                self._wp_profil_guncelle()
         except (ValueError, IndexError):
             pass
+
+    def _wp_komut_degisti(self, idx: int, komut: str):
+        """WP tablosundaki komut tipi dropdown değişince listeyi güncelle."""
+        if idx < len(self._wp_listesi):
+            self._wp_listesi[idx]['komut'] = komut
+
+    def _sesli_uyan(self, metin: str):
+        """Arka planda TTS ile sesli uyarı verir (Windows SAPI / espeak)."""
+        if not self._tts_aktif or self._tts_motor is None:
+            return
+        import threading
+        def _konus():
+            try:
+                self._tts_motor.say(metin)
+                self._tts_motor.runAndWait()
+            except Exception:
+                pass
+        threading.Thread(target=_konus, daemon=True).start()
+
+    def _wp_profil_guncelle(self):
+        """WP listesinden irtifa profil grafiğini günceller (mesafe vs irtifa)."""
+        if not hasattr(self, '_irtifa_grafik') or self._irtifa_grafik is None:
+            return
+        if not self._wp_listesi:
+            self._irtifa_grafik_cizgi.setData([], [])
+            return
+        import math as _math
+        mesafeler = [0.0]
+        for i in range(1, len(self._wp_listesi)):
+            w0, w1 = self._wp_listesi[i - 1], self._wp_listesi[i]
+            dlat = (w1['lat'] - w0['lat']) * 111000
+            dlon = (w1['lon'] - w0['lon']) * 111000 * _math.cos(_math.radians(w0['lat']))
+            mesafeler.append(mesafeler[-1] + _math.hypot(dlat, dlon))
+        altlar = [wp.get('alt', 50) for wp in self._wp_listesi]
+        self._irtifa_grafik_cizgi.setData(mesafeler, altlar)
 
     def _wp_yukle_baslat(self):
         """Waypoint listesini MAVLink MISSION protokolüyle drone'a yükler."""
@@ -2440,8 +2598,10 @@ class AnaPencere(QMainWindow):
             # Başarılı yükleme → OTOMATİK moda geç
             self._mavlink.mod_degistir(3)
             self._mesaj_ekle(4, "OTOMATİK mod — görev başladı.")
+            self._sesli_uyan("Görev yüklendi, otomatik mod başladı")
         else:
             self._mesaj_ekle(2, f"Waypoint yükleme hatası: {mesaj}")
+            self._sesli_uyan("Görev yükleme başarısız")
 
     def _wp_mission_alindi(self, wp_listesi: list):
         """Drone'dan okunan waypoint listesi — haritaya aktar."""

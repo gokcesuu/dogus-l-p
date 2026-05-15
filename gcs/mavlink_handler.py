@@ -717,13 +717,24 @@ class MAVLinkBaglantisi(QThread):
                     )
                 elif seq - 1 < len(wp_listesi):
                     wp = wp_listesi[seq - 1]
+                    _KOMUT_KODLARI = {
+                        "NAV_WAYPOINT":      16,
+                        "TAKEOFF":           22,
+                        "LAND":              21,
+                        "LOITER_TURNS":      18,
+                        "LOITER_TIME":       19,
+                        "LOITER_UNLIMITED":  17,
+                        "RTL":               20,
+                        "DELAY":             93,
+                    }
+                    cmd_id = _KOMUT_KODLARI.get(wp.get("komut", "NAV_WAYPOINT"), 16)
                     mav.mission_item_int_send(
                         ts, tc,
                         seq,
-                        3,   # frame: MAV_FRAME_GLOBAL_RELATIVE_ALT
-                        16,  # command: MAV_CMD_NAV_WAYPOINT
-                        0,   # current
-                        1,   # autocontinue
+                        3,       # frame: MAV_FRAME_GLOBAL_RELATIVE_ALT
+                        cmd_id,
+                        0,       # current
+                        1,       # autocontinue
                         0, 0, 0, 0,
                         int(wp['lat'] * 1e7),
                         int(wp['lon'] * 1e7),
