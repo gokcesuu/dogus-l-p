@@ -1315,19 +1315,24 @@ class AnaPencere(QMainWindow):
         ana.setSpacing(4)
 
         ust = QHBoxLayout()
-        ust.setSpacing(6)
+        ust.setSpacing(4)
 
-        # Sol
+        # ── Sol sütun: HUD + büyük tile sayıları ──────────────────────────────
         sol = QVBoxLayout()
-        sol.addWidget(self._yapay_ufuk_paneli())
-        sol.addWidget(self._imu_paneli())
-        sol.addWidget(self._esc_paneli())
-        ust.addLayout(sol, 2)
+        sol.setSpacing(3)
+        sol.addWidget(self._yapay_ufuk_paneli(), 3)
+        sol.addWidget(self._tile_paneli(), 4)
+        ust.addLayout(sol, 3)
 
-        # Orta
-        ust.addLayout(self._merkez_panel(), 3)
+        # ── Orta sütun: batarya, GPS, rüzgar, IMU, ESC ────────────────────────
+        orta = QVBoxLayout()
+        orta.setSpacing(3)
+        orta.addLayout(self._merkez_panel(), 3)
+        orta.addWidget(self._imu_paneli())
+        orta.addWidget(self._esc_paneli())
+        ust.addLayout(orta, 3)
 
-        # Sağ
+        # ── Sağ sütun: acil komutlar, mod, ev, terrain ────────────────────────
         ust.addLayout(self._sag_panel(), 2)
 
         ana.addLayout(ust, 4)
@@ -1378,18 +1383,61 @@ class AnaPencere(QMainWindow):
 
     def _yapay_ufuk_paneli(self) -> QGroupBox:
         grp = QGroupBox("Yapay Ufuk")
+        grp.setMinimumHeight(220)
         duz = QVBoxLayout(grp)
+        duz.setContentsMargins(4, 4, 4, 4)
         self._yapay_ufuk = YapayUfukWidget()
         duz.addWidget(self._yapay_ufuk)
-        sat = QHBoxLayout()
-        self._roll_lbl  = QLabel("Roll: 0.0°")
-        self._pitch_lbl = QLabel("Pitch: 0.0°")
-        self._yaw_lbl   = QLabel("Yaw: 0.0°")
-        for lb in (self._roll_lbl, self._pitch_lbl, self._yaw_lbl):
-            lb.setAlignment(Qt.AlignCenter)
-            sat.addWidget(lb)
-        duz.addLayout(sat)
         return grp
+
+    def _tile_paneli(self) -> QWidget:
+        """ArduPilot / Mission Planner tarzı büyük renkli telemetri sayı kutucukları."""
+        w = QWidget()
+        w.setStyleSheet("background:#0d1117;")
+        grid = QGridLayout(w)
+        grid.setSpacing(2)
+        grid.setContentsMargins(2, 2, 2, 2)
+
+        # (başlık, birim, renk, instance_attr)
+        _TILES = [
+            ("İrtifa",     "m",   "#4dd0e1", "_irtifa_lbl"),
+            ("Bat Volt",   "V",   "#ffb74d", "_bat_volt_tile_lbl"),
+            ("Pitch",      "°",   "#f48fb1", "_pitch_lbl"),
+            ("Yaw",        "°",   "#80deea", "_yaw_lbl"),
+            ("Dikey Hız",  "m/s", "#fff176", "_dikey_lbl"),
+            ("Roll",       "°",   "#80cbc4", "_roll_lbl"),
+            ("Hız",        "m/s", "#a5d6a7", "_hiz_lbl"),
+            ("Mesafe",     "m",   "#ce93d8", "_uzaklik_lbl"),
+        ]
+
+        for i, (ad, birim, renk, attr) in enumerate(_TILES):
+            r, c = divmod(i, 2)
+            tile = QWidget()
+            tile.setStyleSheet(
+                "QWidget { background:#111827; border:1px solid #1a2535; border-radius:3px; }"
+            )
+            tlay = QVBoxLayout(tile)
+            tlay.setContentsMargins(7, 4, 7, 4)
+            tlay.setSpacing(0)
+
+            ad_lbl = QLabel(f"{ad}  ({birim})")
+            ad_lbl.setStyleSheet(
+                "color:#3a5060; font-size:10px; background:transparent; border:none;"
+            )
+
+            val_lbl = QLabel("—")
+            val_lbl.setStyleSheet(
+                f"color:{renk}; font-size:34px; font-weight:bold; "
+                "background:transparent; border:none; letter-spacing:-1px;"
+            )
+            val_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+            tlay.addWidget(ad_lbl)
+            tlay.addWidget(val_lbl)
+            grid.addWidget(tile, r, c)
+            setattr(self, attr, val_lbl)
+
+        return w
 
     def _imu_paneli(self) -> QGroupBox:
         grp = QGroupBox("IMU Sıcaklıkları")
@@ -1439,15 +1487,6 @@ class AnaPencere(QMainWindow):
         bd.addWidget(self._batarya_bar)
         bd.addWidget(self._batarya_detay)
         duz.addWidget(bat)
-
-        # Uçuş parametreleri
-        prm = QGroupBox("Uçuş Parametreleri")
-        izgara = QGridLayout(prm)
-        self._irtifa_lbl  = self._veri_etiketi("İrtifa",     "0.0 m",   izgara, 0)
-        self._hiz_lbl     = self._veri_etiketi("Hız",        "0.0 m/s", izgara, 1)
-        self._dikey_lbl   = self._veri_etiketi("Dikey Hız",  "0.0 m/s", izgara, 2)
-        self._uzaklik_lbl = self._veri_etiketi("Eve Uzaklık","0 m",     izgara, 3)
-        duz.addWidget(prm)
 
         # GPS
         gps = QGroupBox("GPS Durumu")
@@ -1879,6 +1918,8 @@ class AnaPencere(QMainWindow):
 
     def _batarya_guncelle(self, volt: float, amper: float, yuzde: int):
         self._guncel_batarya_yuzde = yuzde
+        if hasattr(self, '_bat_volt_tile_lbl') and self._bat_volt_tile_lbl:
+            self._bat_volt_tile_lbl.setText(f"{volt:.2f}")
         self._batarya_bar.guncelle(volt, amper, yuzde)
         if volt > 0 and amper > 0.5 and yuzde > 0:
             sure_dk = (volt * yuzde / 100.0) / amper * 60
@@ -1904,10 +1945,10 @@ class AnaPencere(QMainWindow):
     def _vfr_guncelle(self, irtifa: float, hiz: float, dikey: float, uzaklik: float):
         self._guncel_irtifa      = irtifa
         self._guncel_eve_uzaklik = uzaklik
-        self._irtifa_lbl.setText(f"{irtifa:.1f} m")
-        self._hiz_lbl.setText(f"{hiz:.1f} m/s")
-        self._dikey_lbl.setText(f"{dikey:+.1f} m/s")
-        self._uzaklik_lbl.setText(f"{uzaklik:.0f} m")
+        self._irtifa_lbl.setText(f"{irtifa:.2f}")
+        self._hiz_lbl.setText(f"{hiz:.2f}")
+        self._dikey_lbl.setText(f"{dikey:+.2f}")
+        self._uzaklik_lbl.setText(f"{uzaklik:.0f}")
         self._log_satiri.update({"irtifa": irtifa, "hiz": hiz, "dikey_hiz": dikey, "eve_uzaklik": uzaklik})
         self._rtl_izleyici.guncelle(
             uzaklik,
@@ -2108,9 +2149,9 @@ class AnaPencere(QMainWindow):
 
     def _tutum_guncelle(self, roll: float, pitch: float, yaw: float):
         self._yapay_ufuk.guncelle(roll, pitch)
-        self._roll_lbl.setText(f"Roll: {roll:.1f}°")
-        self._pitch_lbl.setText(f"Pitch: {pitch:.1f}°")
-        self._yaw_lbl.setText(f"Yaw: {yaw:.1f}°")
+        self._roll_lbl.setText(f"{roll:.2f}")
+        self._pitch_lbl.setText(f"{pitch:.2f}")
+        self._yaw_lbl.setText(f"{yaw:.2f}")
         self._log_satiri.update({"roll": roll, "pitch": pitch, "yaw": yaw})
 
     def _ruzgar_guncelle(self, hiz: float, yon: float):
@@ -3344,6 +3385,8 @@ class AnaPencere(QMainWindow):
         self._durum_bar.setStyleSheet(
             f"QStatusBar {{ background-color: #0a1520; color: {renk}; }}"
         )
+        if hasattr(self, '_durum_led'):
+            self._durum_led.setStyleSheet(f"color:{renk}; padding:0 2px;")
         if hasattr(self, '_durum_led'):
             self._durum_led.setStyleSheet(f"color:{renk}; padding:0 2px;")
 
