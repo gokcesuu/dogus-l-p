@@ -106,6 +106,10 @@ class MAVLinkBaglantisi(QThread):
     # (guncel_yukseklik_m, bekleyen_tile, yuklenen_tile)
     vibrasyon_guncellendi = pyqtSignal(float, int)
     # (vib_toplam_mss: RMS m/s², klipping_toplam: IMU saturation sayısı)
+    mission_yuklendi  = pyqtSignal(bool, str)
+    # (basarili: bool, mesaj: str)
+    mission_alindi    = pyqtSignal(list)
+    # okunan waypoint listesi: [{"lat": float, "lon": float, "alt": float}, ...]
 
     def __init__(self, baglanti_dizesi: str = _VARSAYILAN_DIZE,
                  anahtar_dosya: str = None):
@@ -645,6 +649,153 @@ class MAVLinkBaglantisi(QThread):
         # Sadece Python değişkeni günceller — socket yazımı yok, thread-safe.
         self._ev_lat = self._guncel_lat
         self._ev_lon = self._guncel_lon
+
+    # ── MAVLink MISSION Protokolü ─────────────────────────────────────────────
+
+    def mission_yukle(self, wp_listesi: list):
+        """
+        Waypoint listesini MAVLink MISSION protokolüyle drone'a yükler.
+        Kuyruk üzerinden MAVLink thread'inde çalışır — thread-safe.
+        """
+        self._kuyruga_ekle(self._mission_yukle_ic, list(wp_listesi))
+
+    def _mission_yukle_ic(self, wp_listesi: list):
+        """
+        MAVLink MISSION upload sırası:
+          1. MISSION_CLEAR_ALL → drone listesini sıfırla
+          2. MISSION_COUNT     → toplam item sayısı
+          3. Her MISSION_REQUEST/MISSION_REQUEST_INT için MISSION_ITEM_INT gönder
+          4. MISSION_ACK bekle
+        """
+        if self._baglanti is None:
+            self.mission_yuklendi.emit(False, "Bağlantı yok")
+            return
+        mav = self._baglanti.mav
+        ts  = self._baglanti.target_system
+        tc  = self._baglanti.target_component
+
+        # 1. Mevcut görevi temizle
+        mav.mission_clear_all_send(ts, tc)
+        import time as _time
+        _time.sleep(0.4)
+
+        # 2. Toplam item sayısı = ev noktası (0) + waypointler
+        toplam = len(wp_listesi) + 1
+        mav.mission_count_send(ts, tc, toplam,
+                               mission_type=0)   # MAV_MISSION_TYPE_MISSION
+
+        # 3. Request'lere cevap ver
+        gonderilen = set()
+        bitis = _time.monotonic() + 15.0
+        while _time.monotonic() < bitis:
+            msg = self._baglanti.recv_match(
+                type=['MISSION_REQUEST', 'MISSION_REQUEST_INT', 'MISSION_ACK'],
+                blocking=True, timeout=2.0
+            )
+            if msg is None:
+                continue
+            t = msg.get_type()
+            if t in ('MISSION_REQUEST', 'MISSION_REQUEST_INT'):
+                seq = msg.seq
+                if seq in gonderilen:
+                    continue
+                gonderilen.add(seq)
+                if seq == 0:
+                    # Ev noktası — drone'un mevcut konumu, AGL 0
+                    mav.mission_item_int_send(
+                        ts, tc,
+                        0,   # seq
+                        0,   # frame: MAV_FRAME_GLOBAL
+                        16,  # command: MAV_CMD_NAV_WAYPOINT
+                        1,   # current (home point)
+                        1,   # autocontinue
+                        0, 0, 0, 0,
+                        int(self._guncel_lat * 1e7),
+                        int(self._guncel_lon * 1e7),
+                        0.0,   # ev noktası AGL = 0
+                        mission_type=0
+                    )
+                elif seq - 1 < len(wp_listesi):
+                    wp = wp_listesi[seq - 1]
+                    mav.mission_item_int_send(
+                        ts, tc,
+                        seq,
+                        3,   # frame: MAV_FRAME_GLOBAL_RELATIVE_ALT
+                        16,  # command: MAV_CMD_NAV_WAYPOINT
+                        0,   # current
+                        1,   # autocontinue
+                        0, 0, 0, 0,
+                        int(wp['lat'] * 1e7),
+                        int(wp['lon'] * 1e7),
+                        float(wp.get('alt', 50)),
+                        mission_type=0
+                    )
+            elif t == 'MISSION_ACK':
+                ok  = (msg.type == 0)   # MAV_MISSION_ACCEPTED = 0
+                msg_str = "Görev yüklendi ✓" if ok else f"Drone hatası: {msg.type}"
+                self.mission_yuklendi.emit(ok, msg_str)
+                return
+
+        self.mission_yuklendi.emit(False, "Zaman aşımı — drone yanıt vermedi (15 sn)")
+
+    def mission_temizle(self):
+        """Drone'daki görev listesini temizler."""
+        self._kuyruga_ekle(self._mission_temizle_ic)
+
+    def _mission_temizle_ic(self):
+        if self._baglanti is None:
+            return
+        self._baglanti.mav.mission_clear_all_send(
+            self._baglanti.target_system,
+            self._baglanti.target_component,
+            mission_type=0
+        )
+
+    def mission_oku(self):
+        """Drone'daki waypoint listesini okur; tamamlanınca mission_alindi sinyali gönderir."""
+        self._kuyruga_ekle(self._mission_oku_ic)
+
+    def _mission_oku_ic(self):
+        if self._baglanti is None:
+            self.mission_alindi.emit([])
+            return
+        import time as _time
+        mav = self._baglanti.mav
+        ts  = self._baglanti.target_system
+        tc  = self._baglanti.target_component
+
+        # Drone'dan waypoint listesi iste
+        mav.mission_request_list_send(ts, tc, mission_type=0)
+
+        # MISSION_COUNT bekle
+        msg = self._baglanti.recv_match(
+            type='MISSION_COUNT', blocking=True, timeout=5.0
+        )
+        if msg is None:
+            self.mission_alindi.emit([])
+            return
+
+        toplam = msg.count
+        wp_listesi = []
+        for seq in range(toplam):
+            mav.mission_request_int_send(ts, tc, seq, mission_type=0)
+            item = self._baglanti.recv_match(
+                type='MISSION_ITEM_INT', blocking=True, timeout=3.0
+            )
+            if item is None:
+                continue
+            # seq 0 = ev noktası, atla
+            if item.seq == 0:
+                continue
+            wp_listesi.append({
+                'lat': item.x / 1e7,
+                'lon': item.y / 1e7,
+                'alt': float(item.z)
+            })
+
+        # Okuma tamamlandı bildirimi
+        mav.mission_ack_send(ts, tc, 0, mission_type=0)
+        self.mission_alindi.emit(wp_listesi)
 
     # ------------------------------------------------------------------
     @staticmethod

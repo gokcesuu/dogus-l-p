@@ -235,6 +235,10 @@ HARITA_HTML = """<!DOCTYPE html>
     <button class="red" id="inisBtn" disabled onclick="window.location.href='gcs://guvenli-inise-git'">&#128680; G&uuml;venli &#304;ni&#351;e Git</button>
     <button id="rallyBtn" style="background:#1a3c6a;border-color:#2a5c9a;" onclick="window.location.href='gcs://rally-yukle'" title="En iyi 5 g&uuml;venli noktay&#305; ArduPilot Rally Point olarak y&uuml;kle (Katman 2)">&#128225; Rally Y&uuml;kle</button>
     <button id="fenceBtn" style="background:#2a1a4a;border-color:#6a3a9a;" onclick="window.location.href='gcs://fence-yukle'" title="U&ccedil;u&#351; alan&#305; bounding box'&#305;ndan AC_Fence polygon y&uuml;kle -- ihlalde RTL">&#128274; Fence Y&uuml;kle</button>
+    <button id="wpBtn" style="background:#1a2a3a;border-color:#b8860b;" onclick="wpToggle()" title="Haritaya tikla → waypoint ekle | Tekrar tıkla → modu kapat | Sag tik markera → sil">&#128205; WP Ekle</button>
+    <button style="background:#1a3a1a;border-color:#4caf50;" onclick="window.location.href='gcs://wp-yukle'" title="Waypointleri drone'a yukle ve OTOMATİK moda gec">&#9654; Gorevi Yukle</button>
+    <button style="background:#3a1a1a;border-color:#f44336;" onclick="window.location.href='gcs://wp-oku'" title="Drone'daki waypointleri oku ve haritada goster">&#11015; Drone'dan Oku</button>
+    <button style="background:#2a2a2a;border-color:#666;" onclick="wpTemizle();window.location.href='gcs://wp-temizle'" title="Tum waypointleri sil">&#128465; WP Temizle</button>
     <button id="cizBtn" style="background:#1a3050;border-color:#2a6040;" onclick="cizimBaslat()" title="Haritada ucus alanini faresiyle ciz, sonra terrain otomatik indirilir">&#9999; Alan Ciz</button>
     <button id="alanHazirlaBtn" style="background:#1a3a2a;border-color:#3a8a5a;" onclick="window.location.href='gcs://alan-hazirla'" title="Mevcut GPS konumu icin terrain verisini yeniden indir ve hazirla">&#128205; Alani Yenile</button>
     <button id="droneGitBtn" style="background:#2a1a1a;border-color:#8a3a2a;" onclick="window.location.href='gcs://drone-git'" title="Haritayi drone konumuna odakla">&#127989; Drone</button>
@@ -468,7 +472,160 @@ map.on('mouseup', function(e) {
 // ESC ile çizimi iptal et
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape' && cizimModu) { cizimIptal(); }
+  if (e.key === 'Escape' && wpModAktif) { wpModKapat(); }
 });
+
+// ── Waypoint Görev Planlaması ────────────────────────────────────────────────
+var wpListesi   = [];   // [{lat, lon, alt}, ...]
+var wpMarkerlar = [];   // Leaflet marker listesi
+var wpYolu      = L.polyline([], {color:'#ffeb3b', weight:2.5, opacity:0.9}).addTo(map);
+var wpModAktif  = false;
+
+function wpModAc() {
+  wpModAktif = true;
+  map.dragging.disable();
+  map.scrollWheelZoom.disable();
+  map.getContainer().style.cursor = 'crosshair';
+  var btn = document.getElementById('wpBtn');
+  if (btn) { btn.style.borderColor = '#ffeb3b'; btn.style.background = '#3a3000'; }
+  durumGoster('📍 Waypoint modu aktif — haritaya tıkla, ESC ile çık');
+}
+function wpModKapat() {
+  wpModAktif = false;
+  map.dragging.enable();
+  map.scrollWheelZoom.enable();
+  map.getContainer().style.cursor = '';
+  var btn = document.getElementById('wpBtn');
+  if (btn) { btn.style.borderColor = '#b8860b'; btn.style.background = '#1a2a3a'; }
+  if (wpListesi.length > 0)
+    durumGoster('WP modu kapatıldı — ' + wpListesi.length + ' waypoint hazır');
+}
+function wpToggle() {
+  if (wpModAktif) wpModKapat(); else wpModAc();
+}
+
+// Harita tıklaması — WP ekle (cizim modu veya wp modu)
+map.on('click', function(e) {
+  if (!wpModAktif) return;
+  var wp = {lat: e.latlng.lat, lon: e.latlng.lng, alt: 50};
+  wpListesi.push(wp);
+  _wpMarkerEkle(wpListesi.length - 1);
+  _wpYoluGuncelle();
+  _wpTabloGonder();
+  durumGoster('WP ' + wpListesi.length + ' eklendi — ' + wp.lat.toFixed(5) + ', ' + wp.lon.toFixed(5));
+});
+
+function _wpMarkerEkle(idx) {
+  var wp = wpListesi[idx];
+  var ikon = L.divIcon({
+    html: '<div style="background:#ffeb3b;color:#000;border-radius:50%;width:24px;height:24px;'
+        + 'display:flex;align-items:center;justify-content:center;font-size:12px;'
+        + 'font-weight:bold;border:2px solid #f57f17;box-shadow:0 0 4px rgba(0,0,0,0.6);">'
+        + (idx + 1) + '</div>',
+    iconSize: [24, 24], iconAnchor: [12, 12], className: ''
+  });
+  var m = L.marker([wp.lat, wp.lon], {icon: ikon, draggable: true})
+    .addTo(map)
+    .bindTooltip(
+      'WP ' + (idx + 1) + '<br>' + wp.lat.toFixed(5) + ', ' + wp.lon.toFixed(5)
+      + '<br>İrtifa: ' + wp.alt + ' m<br><i>Sağ tık → sil | Sürükle → taşı</i>',
+      {sticky: true}
+    );
+  m._wpIdx = idx;
+  m.on('drag', function(ev) {
+    wpListesi[idx].lat = ev.latlng.lat;
+    wpListesi[idx].lon = ev.latlng.lng;
+    m.setTooltipContent(
+      'WP ' + (idx + 1) + '<br>' + ev.latlng.lat.toFixed(5) + ', ' + ev.latlng.lng.toFixed(5)
+      + '<br>İrtifa: ' + wpListesi[idx].alt + ' m<br><i>Sağ tık → sil | Sürükle → taşı</i>'
+    );
+    _wpYoluGuncelle();
+  });
+  m.on('dragend', function() { _wpTabloGonder(); });
+  m.on('contextmenu', function(ev) {
+    L.DomEvent.stopPropagation(ev);
+    wpSil(idx);
+  });
+  wpMarkerlar.push(m);
+}
+
+function _wpMarkerlarYenidenNumarala() {
+  wpMarkerlar.forEach(function(m, i) {
+    m.setIcon(L.divIcon({
+      html: '<div style="background:#ffeb3b;color:#000;border-radius:50%;width:24px;height:24px;'
+          + 'display:flex;align-items:center;justify-content:center;font-size:12px;'
+          + 'font-weight:bold;border:2px solid #f57f17;box-shadow:0 0 4px rgba(0,0,0,0.6);">'
+          + (i + 1) + '</div>',
+      iconSize: [24, 24], iconAnchor: [12, 12], className: ''
+    }));
+    m._wpIdx = i;
+    m.setTooltipContent(
+      'WP ' + (i + 1) + '<br>' + wpListesi[i].lat.toFixed(5) + ', ' + wpListesi[i].lon.toFixed(5)
+      + '<br>İrtifa: ' + wpListesi[i].alt + ' m<br><i>Sağ tık → sil | Sürükle → taşı</i>'
+    );
+  });
+}
+
+function wpSil(idx) {
+  map.removeLayer(wpMarkerlar[idx]);
+  wpListesi.splice(idx, 1);
+  wpMarkerlar.splice(idx, 1);
+  _wpMarkerlarYenidenNumarala();
+  _wpYoluGuncelle();
+  _wpTabloGonder();
+  durumGoster(wpListesi.length + ' waypoint kaldı');
+}
+
+function wpTemizle() {
+  wpMarkerlar.forEach(function(m) { map.removeLayer(m); });
+  wpListesi = []; wpMarkerlar = [];
+  wpYolu.setLatLngs([]);
+  _wpTabloGonder();
+  durumGoster('Tüm waypointler silindi');
+}
+
+function _wpYoluGuncelle() {
+  wpYolu.setLatLngs(wpListesi.map(function(w) { return [w.lat, w.lon]; }));
+}
+
+function _wpTabloGonder() {
+  // Python'a waypoint listesini gönder (URL query string olarak)
+  window.location.href = 'gcs://wp-guncelle?data=' + encodeURIComponent(JSON.stringify(wpListesi));
+}
+
+// Python → JS: irtifa güncellemesi (tablodan düzenleme)
+function wpIrtifaGuncelle(idx, alt) {
+  if (idx >= 0 && idx < wpListesi.length) {
+    wpListesi[idx].alt = alt;
+    if (wpMarkerlar[idx]) {
+      wpMarkerlar[idx].setTooltipContent(
+        'WP ' + (idx + 1) + '<br>' + wpListesi[idx].lat.toFixed(5)
+        + ', ' + wpListesi[idx].lon.toFixed(5)
+        + '<br>İrtifa: ' + alt + ' m<br><i>Sağ tık → sil | Sürükle → taşı</i>'
+      );
+    }
+  }
+}
+
+// Python → JS: drone'dan okunan waypointleri haritaya yükle
+function wpListeYukle(wpJsonStr) {
+  wpTemizle();
+  var liste = JSON.parse(wpJsonStr);
+  liste.forEach(function(wp) {
+    wpListesi.push(wp);
+    _wpMarkerEkle(wpListesi.length - 1);
+  });
+  _wpYoluGuncelle();
+  if (liste.length > 0) {
+    var lats = liste.map(function(w) { return w.lat; });
+    var lons = liste.map(function(w) { return w.lon; });
+    map.fitBounds([
+      [Math.min.apply(null, lats), Math.min.apply(null, lons)],
+      [Math.max.apply(null, lats), Math.max.apply(null, lons)]
+    ], {padding: [50, 50]});
+  }
+  durumGoster(liste.length + ' waypoint drone\'dan yüklendi');
+}
 </script>
 </body>
 </html>"""
@@ -528,6 +685,23 @@ if HARITA_MEVCUT:
                         else:
                             self._gcs._mesaj_ekle(3, "GPS fix yok — drone konumu bilinmiyor.")
                     _defer(_drone_git)
+                elif eylem == 'wp-guncelle':
+                    # JS'den gelen waypoint listesi → Python state + tablo güncelle
+                    try:
+                        raw = QUrlQuery(url).queryItemValue('data')
+                        import urllib.parse as _up
+                        self._gcs._wp_listesi = json.loads(_up.unquote(raw))
+                        QTimer.singleShot(0, self._gcs._wp_tablo_yenile)
+                    except Exception:
+                        pass
+                elif eylem == 'wp-yukle':
+                    _defer(self._gcs._wp_yukle_baslat)
+                elif eylem == 'wp-oku':
+                    _defer(self._gcs._wp_oku_baslat)
+                elif eylem == 'wp-temizle':
+                    self._gcs._wp_listesi = []
+                    QTimer.singleShot(0, self._gcs._wp_tablo_yenile)
+                    self._gcs._mavlink.mission_temizle()
                 elif eylem == 'alan-cizildi':
                     def _alan_cizildi():
                         try:
@@ -813,6 +987,7 @@ class AnaPencere(QMainWindow):
         self._rally_thread = None
         self._fence_thread = None
         self._alan_hazirlik_yapildi = False   # ilk GPS fix'te bir kez tetikle
+        self._wp_listesi: list = []            # waypoint görev listesi [{lat,lon,alt}, ...]
         self._alan_bounds: "tuple | None" = None  # (lat_min, lat_max, lon_min, lon_max)
         _npz = os.path.join(os.path.dirname(__file__), "alan_verisi.npz")
         if not os.path.isfile(_npz):
@@ -856,6 +1031,8 @@ class AnaPencere(QMainWindow):
         m.adsb_guncellendi.connect(self._adsb_guncelle)
         m.esc_guncellendi.connect(self._esc_guncelle)
         m.terrain_rapor.connect(self._terrain_rapor_guncelle)
+        m.mission_yuklendi.connect(self._wp_mission_yuklendi)
+        m.mission_alindi.connect(self._wp_mission_alindi)
 
     # ── UI ───────────────────────────────────────────────────────────────────
 
@@ -1227,6 +1404,23 @@ class AnaPencere(QMainWindow):
         self._harita.loadFinished.connect(_harita_yuklendi)
         self._harita.setHtml(HARITA_HTML)
         duz.addWidget(self._harita)
+
+        # ── Waypoint tablosu (haritanın altında) ──────────────────────────────
+        self._wp_tablo = QTableWidget(0, 4)
+        self._wp_tablo.setHorizontalHeaderLabels(["#", "Enlem", "Boylam", "İrtifa (m)"])
+        self._wp_tablo.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self._wp_tablo.setMaximumHeight(145)
+        self._wp_tablo.setMinimumHeight(80)
+        self._wp_tablo.setEditTriggers(QAbstractItemView.DoubleClicked)
+        self._wp_tablo.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._wp_tablo.setAlternatingRowColors(True)
+        self._wp_tablo.setStyleSheet(
+            "QTableWidget { background:#1a1a2a; color:#ddd; font-size:12px; }"
+            "QHeaderView::section { background:#2a2a3a; color:#aaa; padding:3px; }"
+            "QTableWidget::item:selected { background:#2a3a5a; }"
+        )
+        self._wp_tablo.itemChanged.connect(self._wp_tablo_degisti)
+        duz.addWidget(self._wp_tablo)
 
         self._terrain_thread = None
         return w
@@ -2144,6 +2338,79 @@ class AnaPencere(QMainWindow):
 
     def _harita_yol_temizle(self):
         self._js("ucusYolunuTemizle();")
+
+    # ── Waypoint Görev Planlama ───────────────────────────────────────────────
+
+    def _wp_tablo_yenile(self):
+        """Python waypoint listesinden Qt tablosunu yeniden çizer."""
+        if not hasattr(self, '_wp_tablo'):
+            return
+        self._wp_tablo.blockSignals(True)
+        self._wp_tablo.setRowCount(0)
+        for i, wp in enumerate(self._wp_listesi):
+            self._wp_tablo.insertRow(i)
+            no = QTableWidgetItem(str(i + 1))
+            no.setFlags(no.flags() & ~Qt.ItemIsEditable)
+            no.setTextAlignment(Qt.AlignCenter)
+            lat = QTableWidgetItem(f"{wp['lat']:.6f}")
+            lat.setFlags(lat.flags() & ~Qt.ItemIsEditable)
+            lon = QTableWidgetItem(f"{wp['lon']:.6f}")
+            lon.setFlags(lon.flags() & ~Qt.ItemIsEditable)
+            alt = QTableWidgetItem(str(int(wp.get('alt', 50))))
+            self._wp_tablo.setItem(i, 0, no)
+            self._wp_tablo.setItem(i, 1, lat)
+            self._wp_tablo.setItem(i, 2, lon)
+            self._wp_tablo.setItem(i, 3, alt)
+        self._wp_tablo.blockSignals(False)
+
+    def _wp_tablo_degisti(self, item):
+        """Kullanıcı tabloda irtifayı çift tıklayıp değiştirince haritayı güncelle."""
+        if item.column() != 3:
+            return
+        idx = item.row()
+        try:
+            alt = max(5, int(item.text()))
+            if idx < len(self._wp_listesi):
+                self._wp_listesi[idx]['alt'] = alt
+                self._js(f"wpIrtifaGuncelle({idx}, {alt});")
+        except (ValueError, IndexError):
+            pass
+
+    def _wp_yukle_baslat(self):
+        """Waypoint listesini MAVLink MISSION protokolüyle drone'a yükler."""
+        if not self._bagli:
+            self._mesaj_ekle(3, "Bağlantı yok — önce drone'a bağlan.")
+            return
+        if not self._wp_listesi:
+            self._mesaj_ekle(3, "Yüklenecek waypoint yok — haritaya tıklayarak ekle.")
+            return
+        self._mesaj_ekle(6, f"{len(self._wp_listesi)} waypoint drone'a yükleniyor…")
+        self._mavlink.mission_yukle(self._wp_listesi)
+
+    def _wp_oku_baslat(self):
+        """Drone'daki waypoint listesini okur ve haritada gösterir."""
+        if not self._bagli:
+            self._mesaj_ekle(3, "Bağlantı yok — önce drone'a bağlan.")
+            return
+        self._mesaj_ekle(6, "Drone'daki waypointler okunuyor…")
+        self._mavlink.mission_oku()
+
+    def _wp_mission_yuklendi(self, basarili: bool, mesaj: str):
+        """MAVLink MISSION upload sonucu."""
+        if basarili:
+            self._mesaj_ekle(4, f"✓ {mesaj}")
+            # Başarılı yükleme → OTOMATİK moda geç
+            self._mavlink.mod_degistir(3)
+            self._mesaj_ekle(4, "OTOMATİK mod — görev başladı.")
+        else:
+            self._mesaj_ekle(2, f"Waypoint yükleme hatası: {mesaj}")
+
+    def _wp_mission_alindi(self, wp_listesi: list):
+        """Drone'dan okunan waypoint listesi — haritaya aktar."""
+        self._wp_listesi = wp_listesi
+        self._wp_tablo_yenile()
+        self._js(f"wpListeYukle({json.dumps(json.dumps(wp_listesi, ensure_ascii=False))});")
+        self._mesaj_ekle(4, f"✓ {len(wp_listesi)} waypoint drone'dan okundu.")
 
     def _guvenli_noktalar_temizle(self):
         self._js("guvenliNoktalariTemizle(); durumGoster('');")
