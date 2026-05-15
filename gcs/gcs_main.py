@@ -511,7 +511,7 @@ function wpModAc() {
   map.getContainer().style.cursor = 'crosshair';
   var btn = document.getElementById('wpBtn');
   if (btn) { btn.style.borderColor = '#ffeb3b'; btn.style.background = '#3a3000'; }
-  durumGoster('📍 Waypoint modu aktif — haritaya tıkla, ESC ile çık');
+  durumGoster('Waypoint modu aktif — haritaya tıkla, ESC ile çık');
 }
 function wpModKapat() {
   wpModAktif = false;
@@ -575,16 +575,16 @@ function _wpMarkerEkle(idx) {
       + 'WP ' + (idx + 1) + '</div>'
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#ef9a9a;"'
       + ' onmouseover="this.style.background=\'#2a1a1a\'" onmouseout="this.style.background=\'\'"'
-      + ' onclick="_wpCtxKapat();wpSil(' + idx + ')">🗑 Sil</div>'
+      + ' onclick="_wpCtxKapat();wpSil(' + idx + ')">Sil</div>'
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#80cbc4;"'
       + ' onmouseover="this.style.background=\'#1a2a2a\'" onmouseout="this.style.background=\'\'"'
-      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'LOITER_UNLIMITED\')">🔄 Loiter Yap</div>'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'LOITER_UNLIMITED\')">Loiter Yap</div>'
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#a5d6a7;"'
       + ' onmouseover="this.style.background=\'#1a2a1a\'" onmouseout="this.style.background=\'\'"'
-      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'TAKEOFF\')">🛫 Takeoff Yap</div>'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'TAKEOFF\')">Takeoff Yap</div>'
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#ffcc80;"'
       + ' onmouseover="this.style.background=\'#2a2a1a\'" onmouseout="this.style.background=\'\'"'
-      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'LAND\')">🛬 Land Yap</div>'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'LAND\')">Land Yap</div>'
       + '</div>';
     _wpCtxPopup = L.popup({closeButton: false, offset: [0, -4], className: 'wp-ctx-popup'})
       .setLatLng(ev.latlng)
@@ -1161,7 +1161,7 @@ class AnaPencere(QMainWindow):
         ana.addWidget(self._baglanti_cubugu())
 
         # Bağlantı kopma uyarı bandı
-        self._uyari_bant = QLabel("⚠  BAĞLANTI KESİLDİ")
+        self._uyari_bant = QLabel("BAĞLANTI KESİLDİ")
         self._uyari_bant.setAlignment(Qt.AlignCenter)
         self._uyari_bant.setStyleSheet(UYARI_STILI)
         self._uyari_bant.setFont(QFont("Arial", 11, QFont.Bold))
@@ -1170,28 +1170,28 @@ class AnaPencere(QMainWindow):
 
         # Sekmeler
         self._sekmeler = QTabWidget()
-        self._sekmeler.addTab(self._ana_sekme(), "✈  Uçuş")
+        self._sekmeler.addTab(self._ana_sekme(), "Uçuş")
         self._param_tab_hazir = False
         self._param_stack = QStackedWidget()
-        _pk = QLabel("⚙  Parametreler yükleniyor…")
+        _pk = QLabel("Parametreler yükleniyor…")
         _pk.setAlignment(Qt.AlignCenter)
         self._param_stack.addWidget(_pk)          # index 0 = placeholder
-        self._param_tab_index = self._sekmeler.addTab(self._param_stack, "⚙  Parametreler")
+        self._param_tab_index = self._sekmeler.addTab(self._param_stack, "Parametreler")
         if HARITA_MEVCUT:
             # QWebEngineView pencere gösterilmeden (show()) oluşturulursa
             # Chromium renderer geçerli HWND bulamaz ve çöker.
             # QStackedWidget placeholder koyuyoruz; showEvent'te WebEngine başlatılır.
             self._harita_tab_hazir = False
             self._harita_stack = QStackedWidget()
-            _yk = QLabel("🗺  Harita yükleniyor…")
+            _yk = QLabel("Harita yükleniyor…")
             _yk.setAlignment(Qt.AlignCenter)
             self._harita_stack.addWidget(_yk)          # index 0 = placeholder
-            self._harita_tab_index = self._sekmeler.addTab(self._harita_stack, "🗺  Harita")
+            self._harita_tab_index = self._sekmeler.addTab(self._harita_stack, "Harita")
         else:
             eksik = QLabel("Harita için: pip install PyQtWebEngine")
             eksik.setAlignment(Qt.AlignCenter)
             self._harita_tab_hazir = True
-            self._harita_tab_index = self._sekmeler.addTab(eksik, "🗺  Harita")
+            self._harita_tab_index = self._sekmeler.addTab(eksik, "Harita")
         self._sekmeler.currentChanged.connect(self._sekme_degisti)
         ana.addWidget(self._sekmeler)
 
@@ -1237,7 +1237,7 @@ class AnaPencere(QMainWindow):
         duz.addWidget(self._baglanti_giris)
 
         # ── Bağlan butonu ─────────────────────────────────────────────────────
-        self._baglan_btn = QPushButton("⚡  BAĞLAN")
+        self._baglan_btn = QPushButton("BAĞLAN")
         self._baglan_btn.setFixedSize(100, 30)
         self._baglan_btn.setStyleSheet(
             "QPushButton { background:#1b5e20; color:#a5d6a7; "
@@ -1250,7 +1250,7 @@ class AnaPencere(QMainWindow):
         duz.addWidget(self._baglan_btn)
 
         # ── Kes butonu ────────────────────────────────────────────────────────
-        self._kes_btn = QPushButton("✕  KES")
+        self._kes_btn = QPushButton("KES")
         self._kes_btn.setFixedSize(72, 30)
         self._kes_btn.setStyleSheet(
             "QPushButton { background:#1a1a1a; color:#555; "
@@ -1264,12 +1264,12 @@ class AnaPencere(QMainWindow):
         duz.addWidget(self._kes_btn)
 
         # ── Rapor ─────────────────────────────────────────────────────────────
-        self._rapor_btn = QPushButton("📊")
-        self._rapor_btn.setFixedSize(32, 30)
+        self._rapor_btn = QPushButton("Rapor")
+        self._rapor_btn.setFixedSize(52, 30)
         self._rapor_btn.setToolTip("Son uçuş için HTML rapor oluştur ve tarayıcıda aç")
         self._rapor_btn.setStyleSheet(
-            "QPushButton { background:#1a2a3a; border:1px solid #2a4060; "
-            "border-radius:4px; font-size:15px; }"
+            "QPushButton { background:#1a2a3a; color:#7eb8e0; border:1px solid #2a4060; "
+            "border-radius:4px; font-size:11px; }"
             "QPushButton:hover { background:#2a3a5a; }"
         )
         self._rapor_btn.clicked.connect(self._rapor_tikla)
