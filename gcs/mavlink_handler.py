@@ -40,7 +40,7 @@ UÇUŞ_MODLARI = {
     1:  "AKROBASI",         # ACRO
     2:  "İRTİFA TUT",       # ALT_HOLD
     3:  "OTOMATİK",         # AUTO
-    4:  "GÜDÜMLÜ",          # GUIDED
+    4:  "KILAVUZ",           # GUIDED
     5:  "LOITER",           # LOITER
     6:  "EV'E DÖN",         # RTL
     7:  "DAİRE",            # CIRCLE
