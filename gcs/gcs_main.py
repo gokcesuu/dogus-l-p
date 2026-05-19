@@ -690,6 +690,124 @@ function wpListeYukle(wpJsonStr) {
 </body>
 </html>"""
 
+# ── Mini-harita HTML (uçuş sekmesi — sadece drone takibi) ────────────────────
+
+MINI_HARITA_HTML = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#0d1b2a; }
+  #map { position:absolute; top:30px; left:0; right:0; bottom:0; }
+  #minibar {
+    position:absolute; top:0; left:0; right:0; height:30px; z-index:1000;
+    background:rgba(13,27,42,0.95); display:flex; align-items:center; gap:4px;
+    padding:0 6px; border-bottom:1px solid #2a4060;
+  }
+  #minibar button {
+    background:#1a3050; color:#c8d8e8; border:1px solid #2a4060;
+    border-radius:3px; padding:2px 8px; cursor:pointer; font-size:11px; height:22px;
+  }
+  #minibar button:hover { background:#2a4060; }
+  #minibar select {
+    background:#1a2a3a; color:#7eb8e0; border:1px solid #2a4060;
+    border-radius:3px; padding:1px 4px; font-size:11px; height:22px; cursor:pointer;
+  }
+  #mini-konum { margin-left:auto; color:#7eb8e0; font-size:10px; white-space:nowrap; padding-right:4px; }
+</style>
+</head>
+<body>
+<div id="minibar">
+  <select id="katmanSec" onchange="katmanDegistir(this.value)">
+    <option value="uydu">Uydu</option>
+    <option value="sokak">Sokak</option>
+  </select>
+  <button onclick="droneOdakla()">Drone</button>
+  <button onclick="izTemizle()">Yol Sil</button>
+  <span id="mini-konum">--</span>
+</div>
+<div id="map"></div>
+<script>
+var _ERR_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+var _ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+var _TILE_CFG = {
+  uydu:  {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'Esri', zoom:19},
+  sokak: {url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attr:'CartoDB', zoom:19}
+};
+var map = L.map('map', {zoomControl:true, attributionControl:false, preferCanvas:true})
+           .setView([39.9, 32.8], 6);
+var _aktifKatman = null;
+
+function katmanDegistir(isim) {
+  if (_aktifKatman) { map.removeLayer(_aktifKatman); _aktifKatman = null; }
+  var cfg = _TILE_CFG[isim] || _TILE_CFG.uydu;
+  _aktifKatman = L.tileLayer(cfg.url,
+    {attribution:cfg.attr, maxZoom:cfg.zoom, errorTileUrl:_ERR_TILE}).addTo(map);
+  var s = document.getElementById('katmanSec');
+  if (s) s.value = isim;
+}
+katmanDegistir('uydu');
+
+function _droneIkon(yaw) {
+  var rot = typeof yaw === 'number' ? yaw : 0;
+  return L.divIcon({
+    html: '<div style="width:0;height:0;'
+      + 'border-left:7px solid transparent;border-right:7px solid transparent;'
+      + 'border-bottom:20px solid #f44336;transform:rotate(' + rot + 'deg);'
+      + 'transform-origin:50% 50%;filter:drop-shadow(0 0 3px rgba(244,67,54,0.6));"></div>',
+    iconSize:[14,20], iconAnchor:[7,10], className:''
+  });
+}
+var evIcon = L.divIcon({
+  html: '<div style="width:12px;height:12px;background:#4caf50;'
+    + 'border:2px solid white;transform:rotate(45deg);'
+    + 'box-shadow:0 0 4px rgba(76,175,80,0.7);"></div>',
+  iconSize:[12,12], iconAnchor:[6,6], className:''
+});
+
+var droneMark   = L.marker([39.9, 32.8], {icon: _droneIkon(0)}).addTo(map);
+var evMark      = null;
+var izCizgi     = L.polyline([], {color:'#64b5f6', weight:2, opacity:0.8}).addTo(map);
+var izKoord     = [];
+var ilkKonum    = true;
+
+function droneGuncelle(lat, lon, irtifa, yaw) {
+  var pos = [lat, lon];
+  droneMark.setLatLng(pos);
+  droneMark.setIcon(_droneIkon(yaw));
+  izKoord.push(pos);
+  if (izKoord.length > 300) izKoord.shift();
+  izCizgi.setLatLngs(izKoord);
+  if (ilkKonum) { map.setView(pos, 15); ilkKonum = false; }
+  else { map.panTo(pos, {animate:true, duration:0.3}); }
+  var k = document.getElementById('mini-konum');
+  if (k) k.textContent = lat.toFixed(5) + ', ' + lon.toFixed(5) + '  ' + irtifa.toFixed(1) + 'm';
+}
+
+function evNoktasiGoster(lat, lon) {
+  if (evMark) { evMark.setLatLng([lat, lon]); }
+  else { evMark = L.marker([lat, lon], {icon:evIcon}).bindTooltip('Ev').addTo(map); }
+}
+
+function izTemizle() {
+  izKoord = []; izCizgi.setLatLngs([]);
+}
+
+function droneOdakla() {
+  var ll = droneMark.getLatLng();
+  map.setView(ll, 16);
+}
+
+function boyutDuzelt() {
+  if (typeof map !== 'undefined') { map.invalidateSize(true); }
+}
+</script>
+</body>
+</html>"""
+
 
 # ── Harita sayfa sınıfı (gcs:// URL'lerini yakalar) ──────────────────────────
 
@@ -783,6 +901,18 @@ if HARITA_MEVCUT:
                             self._gcs._mesaj_ekle(3, f"Alan cizimi: koordinat okunamadi ({_err}).")
                     _defer(_alan_cizildi)
                 return False  # gezinme yapma
+            return super().acceptNavigationRequest(url, nav_type, is_main_frame)
+
+    class MiniHaritaSayfa(QWebEnginePage):
+        """Mini-harita için minimal sayfa — hiçbir gcs:// URL'sini işlemez."""
+        def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
+            # Tile 404 ve diğer ağ hatalarını bastır
+            if 'Failed to load' not in message and 'net::ERR' not in message:
+                pass  # sessiz
+
+        def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+            if url.scheme() == 'gcs':
+                return False  # mini-haritadan gcs:// callback gelmez
             return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
@@ -1001,6 +1131,16 @@ class AnaPencere(QMainWindow):
         self._js_timer.start()
         # Eski isim → yeni isim takma adı (eski referanslar bozulmasın)
         self._harita_js_timer = self._js_timer
+
+        # Mini-harita (uçuş sekmesi) JS kuyruğu
+        self._mini_js_kuyruk: list = []
+        self._mini_harita_hazir = False
+        self._mini_harita_tab_hazir = False
+        self._mini_harita_bekleyen_lat: "float | None" = None
+        self._mini_harita_bekleyen_lon: "float | None" = None
+        # Mini-harita timer bağlantıları (aynı _js_timer'a ek)
+        self._js_timer.timeout.connect(self._mini_harita_js_guncelle)
+        self._js_timer.timeout.connect(self._mini_js_temizle)
 
         self._guncel_irtifa = 0.0
         self._guncel_lat = 0.0
@@ -1310,40 +1450,53 @@ class AnaPencere(QMainWindow):
     # ── Uçuş sekmesi ─────────────────────────────────────────────────────────
 
     def _ana_sekme(self) -> QWidget:
+        """Mission Planner tarzı uçuş sekmesi — HUD + mini-harita + telemetri."""
         w = QWidget()
         ana = QVBoxLayout(w)
-        ana.setSpacing(4)
+        ana.setSpacing(3)
+        ana.setContentsMargins(4, 4, 4, 4)
 
-        ust = QHBoxLayout()
-        ust.setSpacing(4)
+        # ── Zone 1: HUD (sol %55) + Mini-Harita (sağ %45) ────────────────────
+        zona1 = QHBoxLayout()
+        zona1.setSpacing(3)
 
-        # ── Sol sütun: HUD + büyük tile sayıları ──────────────────────────────
-        sol = QVBoxLayout()
-        sol.setSpacing(3)
-        sol.addWidget(self._yapay_ufuk_paneli(), 3)
-        sol.addWidget(self._tile_paneli(), 4)
-        ust.addLayout(sol, 3)
+        hud_grp = QGroupBox("Yapay Ufuk")
+        hud_grp.setMinimumHeight(320)
+        hud_lay = QVBoxLayout(hud_grp)
+        hud_lay.setContentsMargins(4, 4, 4, 4)
+        self._yapay_ufuk = YapayUfukWidget()
+        hud_lay.addWidget(self._yapay_ufuk)
+        zona1.addWidget(hud_grp, 55)
 
-        # ── Orta sütun: batarya, GPS, rüzgar, IMU, ESC ────────────────────────
-        orta = QVBoxLayout()
-        orta.setSpacing(3)
-        orta.addLayout(self._merkez_panel(), 3)
-        orta.addWidget(self._imu_paneli())
-        orta.addWidget(self._esc_paneli())
-        ust.addLayout(orta, 3)
+        # Mini-harita placeholder — gerçek QWebEngineView lazy-load ile gelir
+        self._mini_harita_stack = QStackedWidget()
+        _ph = QLabel("Mini harita yükleniyor…")
+        _ph.setAlignment(Qt.AlignCenter)
+        _ph.setStyleSheet("color:#7eb8e0; background:#0d1b2a; font-size:12px;")
+        self._mini_harita_stack.addWidget(_ph)      # index 0 = placeholder
+        zona1.addWidget(self._mini_harita_stack, 45)
 
-        # ── Sağ sütun: acil komutlar, mod, ev, terrain ────────────────────────
-        ust.addLayout(self._sag_panel(), 2)
+        ana.addLayout(zona1, 5)
 
-        ana.addLayout(ust, 4)
+        # ── Zone 2: Batarya / GPS / Rüzgar şerit ─────────────────────────────
+        ana.addWidget(self._batarya_gps_ruzgar_serit())
 
-        # ── Gerçek zamanlı uçuş grafikleri ────────────────────────────────────
+        # ── Zone 3: Kontrol butonları şerit ──────────────────────────────────
+        ana.addWidget(self._kontrol_serit())
+
+        # ── Zone 4: 8 tile tek satır ─────────────────────────────────────────
+        ana.addWidget(self._tile_serit())
+
+        # ── Zone 5: IMU / ESC tab ─────────────────────────────────────────────
+        ana.addWidget(self._imu_esc_sekme())
+
+        # ── Zone 6: Gerçek zamanlı uçuş grafikleri (büyütülmüş) ──────────────
         try:
             import pyqtgraph as pg
             pg.setConfigOptions(antialias=True, background='#111827', foreground='#7eb8e0')
             self._ucus_grafik = pg.PlotWidget()
-            self._ucus_grafik.setMaximumHeight(100)
-            self._ucus_grafik.setMinimumHeight(70)
+            self._ucus_grafik.setMinimumHeight(130)
+            self._ucus_grafik.setMaximumHeight(160)
             self._ucus_grafik.showGrid(x=True, y=True, alpha=0.2)
             self._ucus_grafik.addLegend(offset=(10, 10))
             self._ucus_grafik.getPlotItem().getAxis('left').setTextPen('#7eb8e0')
@@ -1364,7 +1517,12 @@ class AnaPencere(QMainWindow):
         except Exception:
             self._ucus_grafik = None
 
+        # ── Zone 7: Mesaj logu ────────────────────────────────────────────────
         ana.addWidget(self._mesaj_logu_paneli(), 1)
+
+        # Mini-harita lazy-load — pencere gösterildikten 150ms sonra
+        QTimer.singleShot(150, self._mini_harita_yukle)
+
         return w
 
     def _ucus_grafik_guncelle(self):
@@ -1595,6 +1753,175 @@ class AnaPencere(QMainWindow):
         duz.addStretch()
         return duz
 
+    # ── Mission Planner tarzı layout için yardımcı metodlar ─────────────────
+
+    def _batarya_gps_ruzgar_serit(self) -> QWidget:
+        """Zone 2 — batarya/GPS/rüzgar tek yatay şerit (max 64px)."""
+        w = QWidget()
+        w.setMaximumHeight(68)
+        lay = QHBoxLayout(w)
+        lay.setSpacing(4)
+        lay.setContentsMargins(2, 2, 2, 2)
+
+        # Batarya
+        bat_grp = QGroupBox("Batarya")
+        bat_lay = QVBoxLayout(bat_grp)
+        bat_lay.setContentsMargins(6, 4, 6, 4)
+        bat_lay.setSpacing(2)
+        self._batarya_bar = BataryaBar()
+        self._batarya_bar.setMinimumHeight(14)
+        self._batarya_detay = QLabel("--V  --A  Tahmini süre: --")
+        self._batarya_detay.setAlignment(Qt.AlignCenter)
+        self._batarya_detay.setStyleSheet("font-size:10px;")
+        bat_lay.addWidget(self._batarya_bar)
+        bat_lay.addWidget(self._batarya_detay)
+        lay.addWidget(bat_grp, 3)
+
+        # GPS
+        gps_grp = QGroupBox("GPS")
+        gps_lay = QHBoxLayout(gps_grp)
+        gps_lay.setContentsMargins(6, 4, 6, 4)
+        gps_lay.setSpacing(8)
+        self._gps_fix_lbl   = QLabel("Fix: --")
+        self._gps_uydu_lbl  = QLabel("Uydu: --")
+        self._gps_konum_lbl = QLabel("Konum: --")
+        self._gps_konum_lbl.setStyleSheet("font-size:10px;")
+        for lb in (self._gps_fix_lbl, self._gps_uydu_lbl, self._gps_konum_lbl):
+            gps_lay.addWidget(lb)
+        lay.addWidget(gps_grp, 3)
+
+        # Rüzgar
+        ruz_grp = QGroupBox("Rüzgar")
+        ruz_lay = QHBoxLayout(ruz_grp)
+        ruz_lay.setContentsMargins(6, 4, 6, 4)
+        ruz_lay.setSpacing(6)
+        self._ruz_seviye_lbl = QLabel("● —")
+        self._ruz_seviye_lbl.setStyleSheet("color:#555; font-weight:bold; font-size:12px;")
+        self._ruz_hiz_lbl = QLabel("—  m/s")
+        self._ruz_hiz_lbl.setStyleSheet("color:#7eb8e0; font-size:14px; font-weight:bold;")
+        self._ruz_yon_lbl = QLabel("Yön: —°")
+        self._ruz_yon_lbl.setStyleSheet("color:#888; font-size:10px;")
+        self._ruzgar_zemin_lbl = QLabel("Zemin: — km/h")
+        self._ruzgar_zemin_lbl.setStyleSheet("color:#7eb8e0; font-size:10px;")
+        self._ruzgar = None   # canvas widget artık kullanılmıyor
+        for lb in (self._ruz_seviye_lbl, self._ruz_hiz_lbl, self._ruz_yon_lbl, self._ruzgar_zemin_lbl):
+            ruz_lay.addWidget(lb)
+        lay.addWidget(ruz_grp, 2)
+
+        return w
+
+    def _kontrol_serit(self) -> QWidget:
+        """Zone 3 — acil + mod + diğer butonlar tek yatay şerit (max 66px)."""
+        w = QWidget()
+        w.setMaximumHeight(70)
+        lay = QHBoxLayout(w)
+        lay.setSpacing(4)
+        lay.setContentsMargins(2, 2, 2, 2)
+
+        # Acil komutlar
+        acil_grp = QGroupBox("Acil")
+        acil_lay = QHBoxLayout(acil_grp)
+        acil_lay.setContentsMargins(4, 4, 4, 4)
+        acil_lay.setSpacing(3)
+        for (ad, slot, kirmizi) in [
+            ("EV'E DÖN (RTL)", self._rtl_tikla,      True),
+            ("ACİL İNİŞ",      self._inis_tikla,      True),
+            ("HOVERING",       self._hovering_tikla,  False),
+            ("DEVAM ET",       self._devam_tikla,     False),
+        ]:
+            b = QPushButton(ad)
+            b.setMaximumHeight(32)
+            if kirmizi:
+                b.setStyleSheet(ACİL_STILI)
+            b.clicked.connect(slot)
+            acil_lay.addWidget(b)
+        lay.addWidget(acil_grp, 4)
+
+        # Mod seçici
+        mod_grp = QGroupBox("Mod")
+        mod_lay = QHBoxLayout(mod_grp)
+        mod_lay.setContentsMargins(4, 4, 4, 4)
+        mod_lay.setSpacing(3)
+        for (ad, mid) in [("SABİTLEME", 0), ("LOITER", 5), ("OTOMATİK", 3), ("KILAVUZ", 4)]:
+            b = QPushButton(ad)
+            b.setMaximumHeight(32)
+            b.clicked.connect(lambda _, m=mid: self._mod_tikla(m))
+            mod_lay.addWidget(b)
+        lay.addWidget(mod_grp, 4)
+
+        # Diğer (Ev + Terrain/ADSB)
+        diger_grp = QGroupBox("Diğer")
+        diger_lay = QHBoxLayout(diger_grp)
+        diger_lay.setContentsMargins(4, 4, 4, 4)
+        diger_lay.setSpacing(6)
+        ev_btn = QPushButton("Ev Yap")
+        ev_btn.setMaximumHeight(32)
+        ev_btn.clicked.connect(self._ev_yap_tikla)
+        diger_lay.addWidget(ev_btn)
+        self._terrain_yukseklik_lbl = QLabel("Arazi: —")
+        self._terrain_yukseklik_lbl.setFont(QFont("Courier New", 9))
+        self._adsb_sayac_lbl = QLabel("ADSB: 0")
+        self._adsb_sayac_lbl.setFont(QFont("Courier New", 9))
+        diger_lay.addWidget(self._terrain_yukseklik_lbl)
+        diger_lay.addWidget(self._adsb_sayac_lbl)
+        lay.addWidget(diger_grp, 2)
+
+        return w
+
+    def _tile_serit(self) -> QWidget:
+        """Zone 4 — 8 telemetri tile'ı tek yatay satır (max 84px)."""
+        w = QWidget()
+        w.setStyleSheet("background:#0d1117;")
+        w.setMaximumHeight(84)
+        lay = QHBoxLayout(w)
+        lay.setSpacing(2)
+        lay.setContentsMargins(2, 2, 2, 2)
+
+        _TILES = [
+            ("İrtifa",    "m",   "#4dd0e1", "_irtifa_lbl"),
+            ("Hız",       "m/s", "#a5d6a7", "_hiz_lbl"),
+            ("Dikey Hız", "m/s", "#fff176", "_dikey_lbl"),
+            ("Mesafe",    "m",   "#ce93d8", "_uzaklik_lbl"),
+            ("Roll",      "°",   "#80cbc4", "_roll_lbl"),
+            ("Pitch",     "°",   "#f48fb1", "_pitch_lbl"),
+            ("Yaw",       "°",   "#80deea", "_yaw_lbl"),
+            ("Bat Volt",  "V",   "#ffb74d", "_bat_volt_tile_lbl"),
+        ]
+
+        for (ad, birim, renk, attr) in _TILES:
+            tile = QWidget()
+            tile.setStyleSheet(
+                "QWidget { background:#111827; border:1px solid #1a2535; border-radius:3px; }"
+            )
+            tlay = QVBoxLayout(tile)
+            tlay.setContentsMargins(5, 3, 5, 3)
+            tlay.setSpacing(0)
+            ad_lbl = QLabel(f"{ad}\n({birim})")
+            ad_lbl.setStyleSheet("color:#3a5060; font-size:9px; background:transparent; border:none;")
+            ad_lbl.setAlignment(Qt.AlignCenter)
+            val_lbl = QLabel("—")
+            val_lbl.setStyleSheet(
+                f"color:{renk}; font-size:22px; font-weight:bold; "
+                "background:transparent; border:none; letter-spacing:-1px;"
+            )
+            val_lbl.setAlignment(Qt.AlignCenter)
+            tlay.addWidget(ad_lbl)
+            tlay.addWidget(val_lbl)
+            lay.addWidget(tile, 1)
+            setattr(self, attr, val_lbl)
+
+        return w
+
+    def _imu_esc_sekme(self) -> "QTabWidget":
+        """Zone 5 — IMU ve ESC panellerini daraltılmış QTabWidget içinde göster."""
+        from PyQt5.QtWidgets import QTabWidget as _QTW
+        tabs = _QTW()
+        tabs.setMaximumHeight(130)
+        tabs.setMinimumHeight(80)
+        tabs.addTab(self._imu_paneli(), "IMU Sıcaklıkları")
+        tabs.addTab(self._esc_paneli(), "ESC / Motor")
+        return tabs
+
     def _mesaj_logu_paneli(self) -> QGroupBox:
         grp = QGroupBox("Sistem Mesajları")
         duz = QVBoxLayout(grp)
@@ -1796,6 +2123,40 @@ class AnaPencere(QMainWindow):
             self._param_guncelle(ad, deger, 0, 0)
         self._param_tablo.setSortingEnabled(True)
 
+    def _mini_harita_yukle(self):
+        """Uçuş sekmesi göründükten ~150ms sonra mini-haritayı oluşturur."""
+        if not HARITA_MEVCUT or getattr(self, "_mini_harita_tab_hazir", False):
+            return
+        self._mini_harita_tab_hazir = True
+        self._mini_harita_view = QWebEngineView()
+        self._mini_harita_view.setMinimumSize(200, 200)
+        sayfa = MiniHaritaSayfa(self._mini_harita_view)
+        self._mini_harita_view.setPage(sayfa)
+
+        def _yukle_tamamlandi(ok):
+            self._mini_harita_hazir = True
+            QTimer.singleShot(350, self._mini_harita_boyut_duzelt)
+            QTimer.singleShot(800, self._mini_harita_boyut_duzelt)
+
+        self._mini_harita_view.loadFinished.connect(_yukle_tamamlandi)
+        self._mini_harita_view.setHtml(MINI_HARITA_HTML)
+        self._mini_harita_stack.addWidget(self._mini_harita_view)   # index 1
+        self._mini_harita_stack.setCurrentIndex(1)
+
+    def _mini_harita_boyut_duzelt(self):
+        """Leaflet invalidateSize — widget boyutlandıktan sonra."""
+        if not getattr(self, "_mini_harita_hazir", False):
+            QTimer.singleShot(400, self._mini_harita_boyut_duzelt)
+            return
+        if not hasattr(self, "_mini_harita_view"):
+            return
+        h = self._mini_harita_view.height()
+        w = self._mini_harita_view.width()
+        if h <= 10 or w <= 10:
+            QTimer.singleShot(300, self._mini_harita_boyut_duzelt)
+            return
+        self._mini_js("boyutDuzelt();")
+
     def _harita_tab_yukle(self):
         if self._harita_tab_hazir:
             return
@@ -1978,6 +2339,9 @@ class AnaPencere(QMainWindow):
         # Harita JS güncellemesi — doğrudan değil, 500 ms timer buffer'ına yaz
         self._harita_bekleyen_lat = lat
         self._harita_bekleyen_lon = lon
+        # Mini-harita (uçuş sekmesi) buffer
+        self._mini_harita_bekleyen_lat = lat
+        self._mini_harita_bekleyen_lon = lon
         self._guncel_gps_fix = fix
         self._log_satiri.update({"gps_fix": fix, "gps_uydu": uydu, "lat": lat, "lon": lon})
 
@@ -2058,6 +2422,43 @@ class AnaPencere(QMainWindow):
             self._harita.page().runJavaScript(kod)
         except Exception:
             pass
+
+    # ── Mini-harita JS altyapısı ──────────────────────────────────────────────
+
+    def _mini_js(self, script: str):
+        """Mini-harita JS kuyruğuna ekle."""
+        if HARITA_MEVCUT and getattr(self, "_mini_harita_hazir", False):
+            self._mini_js_kuyruk.append(script)
+
+    def _mini_js_temizle(self):
+        """Timer tick'inde mini-harita JS kuyruğunu flush eder."""
+        if not self._mini_js_kuyruk:
+            return
+        if not HARITA_MEVCUT or not getattr(self, "_mini_harita_hazir", False):
+            self._mini_js_kuyruk.clear()
+            return
+        if not hasattr(self, "_mini_harita_view"):
+            self._mini_js_kuyruk.clear()
+            return
+        kod = "\n".join(self._mini_js_kuyruk)
+        self._mini_js_kuyruk.clear()
+        try:
+            self._mini_harita_view.page().runJavaScript(kod)
+        except Exception:
+            pass
+
+    def _mini_harita_js_guncelle(self):
+        """Timer tick'inde mini-harita GPS buffer'ını kuyruğa ekler."""
+        lat = self._mini_harita_bekleyen_lat
+        lon = self._mini_harita_bekleyen_lon
+        if lat is None:
+            return
+        self._mini_harita_bekleyen_lat = None
+        if lat == 0.0 and lon == 0.0:
+            return
+        alt = self._guncel_irtifa
+        yaw = self._log_satiri.get("yaw", 0.0)
+        self._mini_js(f"droneGuncelle({lat},{lon},{alt},{yaw});")
 
     def _harita_js_guncelle(self):
         """100 ms timer'ından GPS buffer'ını kuyruğa ekler."""
@@ -3399,6 +3800,7 @@ class AnaPencere(QMainWindow):
         self._log_timer.stop()
         self._js_timer.stop()
         self._js_kuyruk.clear()
+        self._mini_js_kuyruk.clear()
         # Arka plan thread'lerini durdur (beklemez — sadece sinyaller kesilir)
         for t in (self._alan_hazirlik_thread, self._terrain_thread,
                   self._rally_thread, self._fence_thread):
