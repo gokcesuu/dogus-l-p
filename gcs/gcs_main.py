@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QLineEdit, QTextEdit, QGridLayout, QHBoxLayout, QVBoxLayout,
     QGroupBox, QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QProgressBar, QMessageBox, QAbstractItemView,
-    QFileDialog, QStackedWidget, QComboBox,
+    QFileDialog, QStackedWidget, QComboBox, QSpinBox,
 )
 from PyQt5.QtCore import Qt, QDateTime, QTimer, QThread, pyqtSignal as Signal
 from PyQt5.QtGui import QFont, QColor
@@ -527,11 +527,15 @@ function wpToggle() {
   if (wpModAktif) wpModKapat(); else wpModAc();
 }
 
+// Varsayılan irtifa — Python spinbox'tan güncellenir
+var _wpDefAlt = 50;
+function wpDefAltGuncelle(alt) { _wpDefAlt = alt; }
+
 // Harita tıklaması — WP ekle (cizim modu veya wp modu)
 map.on('click', function(e) {
   _wpCtxKapat();   // Açık context menüyü kapat
   if (!wpModAktif) return;
-  var wp = {lat: e.latlng.lat, lon: e.latlng.lng, alt: 50, komut: 'NAV_WAYPOINT'};
+  var wp = {lat: e.latlng.lat, lon: e.latlng.lng, alt: _wpDefAlt, komut: 'NAV_WAYPOINT'};
   wpListesi.push(wp);
   _wpMarkerEkle(wpListesi.length - 1);
   _wpYoluGuncelle();
@@ -1450,80 +1454,151 @@ class AnaPencere(QMainWindow):
     # ── Uçuş sekmesi ─────────────────────────────────────────────────────────
 
     def _ana_sekme(self) -> QWidget:
-        """Mission Planner tarzı uçuş sekmesi — HUD + mini-harita + telemetri."""
+        """Mission Planner tarzı 2-kolonlu uçuş sekmesi.
+
+        Sol kolon  (%55): HUD (esnek yükseklik) + kompakt durum çubuğu + alt sekmeler
+        Sağ kolon  (%45): Mini-harita — TAM yükseklikte, tüm zone'larla rekabet etmez
+        """
         w = QWidget()
-        ana = QVBoxLayout(w)
-        ana.setSpacing(3)
-        ana.setContentsMargins(4, 4, 4, 4)
+        main_row = QHBoxLayout(w)
+        main_row.setSpacing(3)
+        main_row.setContentsMargins(4, 4, 4, 4)
 
-        # ── Zone 1: HUD (sol %55) + Mini-Harita (sağ %45) ────────────────────
-        zona1 = QHBoxLayout()
-        zona1.setSpacing(3)
+        # ── Sol kolon ─────────────────────────────────────────────────────────
+        sol_w = QWidget()
+        sol = QVBoxLayout(sol_w)
+        sol.setSpacing(3)
+        sol.setContentsMargins(0, 0, 0, 0)
 
+        # HUD — ekranın çoğunu kullanır, stretch=1 ile esnek büyür
         hud_grp = QGroupBox("Yapay Ufuk")
-        hud_grp.setMinimumHeight(320)
+        hud_grp.setMinimumHeight(260)
         hud_lay = QVBoxLayout(hud_grp)
         hud_lay.setContentsMargins(4, 4, 4, 4)
         self._yapay_ufuk = YapayUfukWidget()
         hud_lay.addWidget(self._yapay_ufuk)
-        zona1.addWidget(hud_grp, 55)
+        sol.addWidget(hud_grp, 1)
 
-        # Mini-harita placeholder — gerçek QWebEngineView lazy-load ile gelir
+        # Kompakt durum çubuğu — tek satır, max 32px
+        sol.addWidget(self._durum_serit_kompakt())
+
+        # Alt sekmeler — Kontrol / Değerler / IMU-ESC / Grafik / Mesaj
+        sol.addWidget(self._alt_sekmeler())
+
+        main_row.addWidget(sol_w, 55)
+
+        # ── Sağ kolon: Mini-harita tam yükseklikte ────────────────────────────
         self._mini_harita_stack = QStackedWidget()
         _ph = QLabel("Mini harita yükleniyor…")
         _ph.setAlignment(Qt.AlignCenter)
         _ph.setStyleSheet("color:#7eb8e0; background:#0d1b2a; font-size:12px;")
         self._mini_harita_stack.addWidget(_ph)      # index 0 = placeholder
-        zona1.addWidget(self._mini_harita_stack, 45)
+        main_row.addWidget(self._mini_harita_stack, 45)
 
-        ana.addLayout(zona1, 5)
+        # Mini-harita lazy-load — pencere gösterildikten 150ms sonra
+        QTimer.singleShot(150, self._mini_harita_yukle)
 
-        # ── Zone 2: Batarya / GPS / Rüzgar şerit ─────────────────────────────
-        ana.addWidget(self._batarya_gps_ruzgar_serit())
+        return w
 
-        # ── Zone 3: Kontrol butonları şerit ──────────────────────────────────
-        ana.addWidget(self._kontrol_serit())
+    def _durum_serit_kompakt(self) -> QWidget:
+        """Tek satır durum çubuğu: Batarya | GPS | Rüzgar — max 32px.
 
-        # ── Zone 4: 8 tile tek satır ─────────────────────────────────────────
-        ana.addWidget(self._tile_serit())
+        Tüm self._xxx attr isimleri korunur — güncelleme metodları bozulmaz.
+        """
+        w = QWidget()
+        w.setMaximumHeight(32)
+        w.setMinimumHeight(28)
+        w.setStyleSheet("background:#0d1b2a; border-top:1px solid #1a2a3a;")
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(8, 2, 8, 2)
+        lay.setSpacing(8)
 
-        # ── Zone 5: IMU / ESC tab ─────────────────────────────────────────────
-        ana.addWidget(self._imu_esc_sekme())
+        # Batarya
+        self._batarya_bar = BataryaBar()
+        self._batarya_bar.setFixedSize(34, 14)
+        lay.addWidget(self._batarya_bar)
+        self._batarya_detay = QLabel("—V  —A  —%")
+        self._batarya_detay.setStyleSheet("color:#ffb74d; font-size:11px;")
+        lay.addWidget(self._batarya_detay)
 
-        # ── Zone 6: Gerçek zamanlı uçuş grafikleri (büyütülmüş) ──────────────
+        _s1 = QLabel("|"); _s1.setStyleSheet("color:#2a4060; font-size:11px;")
+        lay.addWidget(_s1)
+
+        # GPS
+        self._gps_fix_lbl   = QLabel("Fix: —")
+        self._gps_uydu_lbl  = QLabel("Uydu: —")
+        self._gps_konum_lbl = QLabel("—, —")
+        for _l in (self._gps_fix_lbl, self._gps_uydu_lbl, self._gps_konum_lbl):
+            _l.setStyleSheet("color:#7eb8e0; font-size:11px;")
+            lay.addWidget(_l)
+
+        _s2 = QLabel("|"); _s2.setStyleSheet("color:#2a4060; font-size:11px;")
+        lay.addWidget(_s2)
+
+        # Rüzgar
+        self._ruzgar           = None
+        self._ruz_seviye_lbl   = QLabel("—")
+        self._ruz_hiz_lbl      = QLabel("— km/h")
+        self._ruz_yon_lbl      = QLabel("—°")
+        self._ruzgar_zemin_lbl = QLabel("Zemin: —")
+        for _l in (self._ruz_seviye_lbl, self._ruz_hiz_lbl,
+                   self._ruz_yon_lbl, self._ruzgar_zemin_lbl):
+            _l.setStyleSheet("color:#80cbc4; font-size:11px;")
+            lay.addWidget(_l)
+
+        lay.addStretch()
+        return w
+
+    def _alt_sekmeler(self) -> QTabWidget:
+        """Alt sekmeli panel: Kontrol / Değerler / IMU-ESC / Grafik / Mesaj."""
+        tabs = QTabWidget()
+        tabs.setMinimumHeight(130)
+        tabs.setMaximumHeight(215)
+        tabs.setStyleSheet(
+            "QTabWidget::pane { border:1px solid #1a2a3a; background:#0d1b2a; }"
+            "QTabBar::tab { background:#0a1520; color:#7eb8e0; padding:4px 11px;"
+            "  font-size:11px; border:1px solid #1a2a3a; border-bottom:none;"
+            "  margin-right:1px; }"
+            "QTabBar::tab:selected { background:#0d1b2a; color:#58a6ff;"
+            "  border-bottom:2px solid #58a6ff; }"
+            "QTabBar::tab:hover { background:#1a2a3a; }"
+        )
+        tabs.addTab(self._kontrol_serit(),      "Kontrol")
+        tabs.addTab(self._tile_serit(),          "Degerler")
+        tabs.addTab(self._imu_esc_sekme(),       "IMU/ESC")
+        tabs.addTab(self._ucus_grafik_widget(),  "Grafik")
+        tabs.addTab(self._mesaj_logu_paneli(),   "Mesaj")
+        return tabs
+
+    def _ucus_grafik_widget(self) -> QWidget:
+        """pyqtgraph uçuş grafik widget'ini oluşturur ve self attrs'ı ayarlar."""
         try:
             import pyqtgraph as pg
             pg.setConfigOptions(antialias=True, background='#111827', foreground='#7eb8e0')
             self._ucus_grafik = pg.PlotWidget()
-            self._ucus_grafik.setMinimumHeight(130)
-            self._ucus_grafik.setMaximumHeight(160)
             self._ucus_grafik.showGrid(x=True, y=True, alpha=0.2)
             self._ucus_grafik.addLegend(offset=(10, 10))
             self._ucus_grafik.getPlotItem().getAxis('left').setTextPen('#7eb8e0')
             self._ucus_grafik.getPlotItem().getAxis('bottom').setTextPen('#7eb8e0')
             self._ucus_irtifa_cizgi = self._ucus_grafik.plot(
-                name="İrtifa(m)", pen=pg.mkPen('#4fc3f7', width=2))
+                name="Irtifa(m)", pen=pg.mkPen('#4fc3f7', width=2))
             self._ucus_hiz_cizgi = self._ucus_grafik.plot(
-                name="Hız(m/s)", pen=pg.mkPen('#81c784', width=2))
+                name="Hiz(m/s)", pen=pg.mkPen('#81c784', width=2))
             self._ucus_bat_cizgi = self._ucus_grafik.plot(
                 name="Bat(%)", pen=pg.mkPen('#ffb74d', width=2))
-            ana.addWidget(self._ucus_grafik)
             # Veri buffer'ları — son 5 dk (300 örnek @ 1Hz)
             self._grafik_t:       deque = deque(maxlen=300)
             self._grafik_irtifa:  deque = deque(maxlen=300)
             self._grafik_hiz:     deque = deque(maxlen=300)
             self._grafik_batarya: deque = deque(maxlen=300)
             self._grafik_t0 = time.monotonic()
+            return self._ucus_grafik
         except Exception:
             self._ucus_grafik = None
-
-        # ── Zone 7: Mesaj logu ────────────────────────────────────────────────
-        ana.addWidget(self._mesaj_logu_paneli(), 1)
-
-        # Mini-harita lazy-load — pencere gösterildikten 150ms sonra
-        QTimer.singleShot(150, self._mini_harita_yukle)
-
-        return w
+            _lbl = QLabel("pyqtgraph yuklenemedi")
+            _lbl.setAlignment(Qt.AlignCenter)
+            _lbl.setStyleSheet("color:#666; font-size:11px;")
+            return _lbl
 
     def _ucus_grafik_guncelle(self):
         """VFR/batarya verisi gelince uçuş grafiğine nokta ekler (1 Hz'de çağrılır)."""
@@ -2039,13 +2114,77 @@ class AnaPencere(QMainWindow):
         _ozet_satir.addStretch()
         duz.addLayout(_ozet_satir)
 
+        # ── Ayarlar çubuğu (Mission Planner tarzı) ────────────────────────────
+        _ayar_satir = QHBoxLayout()
+        _ayar_satir.setContentsMargins(4, 2, 4, 2)
+        _ayar_satir.setSpacing(6)
+
+        _ayar_satir.addWidget(QLabel("Varsayılan İrtifa:"))
+        self._wp_def_alt = QSpinBox()
+        self._wp_def_alt.setRange(5, 500)
+        self._wp_def_alt.setValue(50)
+        self._wp_def_alt.setSuffix(" m")
+        self._wp_def_alt.setFixedWidth(80)
+        self._wp_def_alt.setToolTip("Yeni waypoint'lerin varsayılan irtifası")
+        self._wp_def_alt.setStyleSheet(
+            "QSpinBox { background:#1a2a3a; color:#ddd; border:1px solid #2a4060;"
+            " border-radius:3px; padding:1px 4px; }"
+        )
+        self._wp_def_alt.valueChanged.connect(
+            lambda v: self._js(f"wpDefAltGuncelle({v});")
+        )
+        _ayar_satir.addWidget(self._wp_def_alt)
+
+        _ayar_satir.addWidget(QLabel("WP Yarıçapı:"))
+        self._wp_radius = QSpinBox()
+        self._wp_radius.setRange(1, 200)
+        self._wp_radius.setValue(10)
+        self._wp_radius.setSuffix(" m")
+        self._wp_radius.setFixedWidth(75)
+        self._wp_radius.setToolTip("Waypoint kabul yarıçapı (MAVLink param 1)")
+        self._wp_radius.setStyleSheet(
+            "QSpinBox { background:#1a2a3a; color:#ddd; border:1px solid #2a4060;"
+            " border-radius:3px; padding:1px 4px; }"
+        )
+        _ayar_satir.addWidget(self._wp_radius)
+
+        _ayar_satir.addSpacing(8)
+
+        _load_btn = QPushButton("WP Yükle")
+        _load_btn.setFixedHeight(24)
+        _load_btn.setToolTip(".waypoints dosyasından WP listesini yükle")
+        _load_btn.clicked.connect(self._wp_dosya_yukle)
+        _ayar_satir.addWidget(_load_btn)
+
+        _save_btn = QPushButton("WP Kaydet")
+        _save_btn.setFixedHeight(24)
+        _save_btn.setToolTip("WP listesini .waypoints formatında kaydet")
+        _save_btn.clicked.connect(self._wp_dosya_kaydet)
+        _ayar_satir.addWidget(_save_btn)
+
+        _ayar_satir.addSpacing(8)
+
+        self._wp_home_lbl = QLabel("Ev: —")
+        self._wp_home_lbl.setStyleSheet("color:#7eb8e0; font-size:11px;")
+        self._wp_home_lbl.setToolTip("Drone ev konumu (GPS fix alındığında güncellenir)")
+        _ayar_satir.addWidget(self._wp_home_lbl)
+
+        _ayar_satir.addStretch()
+        duz.addLayout(_ayar_satir)
+
         # ── Waypoint tablosu (haritanın altında) ──────────────────────────────
-        self._wp_tablo = QTableWidget(0, 5)
-        self._wp_tablo.setHorizontalHeaderLabels(["#", "Komut", "Enlem", "Boylam", "İrtifa (m)"])
-        self._wp_tablo.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self._wp_tablo.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self._wp_tablo.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self._wp_tablo.setMaximumHeight(145)
+        # Sütunlar: # | Komut | Enlem | Boylam | İrtifa | Mesafe | AZ | ↑↓
+        self._wp_tablo = QTableWidget(0, 8)
+        self._wp_tablo.setHorizontalHeaderLabels(
+            ["#", "Komut", "Enlem", "Boylam", "İrtifa (m)", "Mesafe (m)", "AZ (°)", ""]
+        )
+        _hh = self._wp_tablo.horizontalHeader()
+        _hh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        _hh.setSectionResizeMode(2, QHeaderView.Stretch)   # Enlem — genişle
+        _hh.setSectionResizeMode(3, QHeaderView.Stretch)   # Boylam — genişle
+        _hh.setSectionResizeMode(7, QHeaderView.Fixed)
+        self._wp_tablo.setColumnWidth(7, 56)               # ↑↓ buton sütunu
+        self._wp_tablo.setMaximumHeight(165)
         self._wp_tablo.setMinimumHeight(80)
         self._wp_tablo.setEditTriggers(QAbstractItemView.DoubleClicked)
         self._wp_tablo.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -2344,6 +2483,11 @@ class AnaPencere(QMainWindow):
         self._mini_harita_bekleyen_lon = lon
         self._guncel_gps_fix = fix
         self._log_satiri.update({"gps_fix": fix, "gps_uydu": uydu, "lat": lat, "lon": lon})
+
+        # Ev konumu etiketi — ilk 3D fix'te göster
+        if fix >= 3 and lat != 0.0 and hasattr(self, '_wp_home_lbl'):
+            if self._wp_home_lbl.text() == "Ev: —":
+                self._wp_home_lbl.setText(f"Ev: {lat:.5f}, {lon:.5f}")
 
         # İlk 3D fix'te terrain hazırlığı — fence/önceki alan sınırına göre akıllı karar
         if (fix >= 3
@@ -3171,30 +3315,79 @@ class AnaPencere(QMainWindow):
 
     _WP_KOMUTLAR = ["NAV_WAYPOINT", "TAKEOFF", "LAND", "LOITER_TURNS",
                     "LOITER_TIME", "LOITER_UNLIMITED", "RTL", "DELAY"]
+    _WP_KOMUT_KODLARI = {
+        "NAV_WAYPOINT":       16,
+        "TAKEOFF":            22,
+        "LAND":               21,
+        "LOITER_TURNS":       18,
+        "LOITER_TIME":        19,
+        "LOITER_UNLIMITED":   17,
+        "RTL":                20,
+        "DELAY":              93,
+    }
 
     def _wp_tablo_yenile(self):
         """Python waypoint listesinden Qt tablosunu yeniden çizer."""
+        import math as _math
         if not hasattr(self, '_wp_tablo'):
             return
         self._wp_tablo.blockSignals(True)
         self._wp_tablo.setRowCount(0)
+
+        # Mesafe ve azimut ön-hesaplama
+        mesafeler = [0.0]
+        azimutlar = [0.0]
+        for i in range(1, len(self._wp_listesi)):
+            w0, w1 = self._wp_listesi[i - 1], self._wp_listesi[i]
+            dlat = (w1['lat'] - w0['lat']) * 111000.0
+            dlon = (w1['lon'] - w0['lon']) * 111000.0 * _math.cos(_math.radians(w0['lat']))
+            seg = _math.hypot(dlat, dlon)
+            mesafeler.append(seg)
+            az = (_math.degrees(_math.atan2(dlon, dlat))) % 360.0
+            azimutlar.append(az)
+
+        _btn_stil = (
+            "QPushButton { background:#1e2e3e; color:#9ab; border:1px solid #2a4060;"
+            " border-radius:2px; font-size:12px; padding:0; }"
+            "QPushButton:hover { background:#2a4060; }"
+        )
+
         for i, wp in enumerate(self._wp_listesi):
             self._wp_tablo.insertRow(i)
+
             # Sütun 0 — sıra no
             no = QTableWidgetItem(str(i + 1))
             no.setFlags(no.flags() & ~Qt.ItemIsEditable)
             no.setTextAlignment(Qt.AlignCenter)
+
             # Sütun 2,3 — lat/lon (salt okunur)
             lat = QTableWidgetItem(f"{wp['lat']:.6f}")
             lat.setFlags(lat.flags() & ~Qt.ItemIsEditable)
             lon = QTableWidgetItem(f"{wp['lon']:.6f}")
             lon.setFlags(lon.flags() & ~Qt.ItemIsEditable)
+
             # Sütun 4 — irtifa (düzenlenebilir)
             alt = QTableWidgetItem(str(int(wp.get('alt', 50))))
+
+            # Sütun 5 — mesafe (salt okunur)
+            mes_str = f"{mesafeler[i]:.0f}" if i > 0 else "—"
+            mes_item = QTableWidgetItem(mes_str)
+            mes_item.setFlags(mes_item.flags() & ~Qt.ItemIsEditable)
+            mes_item.setTextAlignment(Qt.AlignCenter)
+
+            # Sütun 6 — azimut (salt okunur)
+            az_str = f"{azimutlar[i]:.0f}" if i > 0 else "—"
+            az_item = QTableWidgetItem(az_str)
+            az_item.setFlags(az_item.flags() & ~Qt.ItemIsEditable)
+            az_item.setTextAlignment(Qt.AlignCenter)
+
             self._wp_tablo.setItem(i, 0, no)
             self._wp_tablo.setItem(i, 2, lat)
             self._wp_tablo.setItem(i, 3, lon)
             self._wp_tablo.setItem(i, 4, alt)
+            self._wp_tablo.setItem(i, 5, mes_item)
+            self._wp_tablo.setItem(i, 6, az_item)
+
             # Sütun 1 — komut tipi (QComboBox)
             combo = QComboBox()
             combo.addItems(self._WP_KOMUTLAR)
@@ -3202,6 +3395,26 @@ class AnaPencere(QMainWindow):
             combo.setStyleSheet("background:#1a2a3a; color:#ddd; font-size:11px;")
             combo.currentTextChanged.connect(lambda t, idx=i: self._wp_komut_degisti(idx, t))
             self._wp_tablo.setCellWidget(i, 1, combo)
+
+            # Sütun 7 — Yukarı / Aşağı butonları
+            _btn_w = QWidget()
+            _btn_lay = QHBoxLayout(_btn_w)
+            _btn_lay.setContentsMargins(1, 1, 1, 1)
+            _btn_lay.setSpacing(2)
+            _up = QPushButton("↑")
+            _up.setFixedSize(24, 22)
+            _up.setStyleSheet(_btn_stil)
+            _up.setEnabled(i > 0)
+            _up.clicked.connect(lambda _, idx=i: self._wp_yukari(idx))
+            _dn = QPushButton("↓")
+            _dn.setFixedSize(24, 22)
+            _dn.setStyleSheet(_btn_stil)
+            _dn.setEnabled(i < len(self._wp_listesi) - 1)
+            _dn.clicked.connect(lambda _, idx=i: self._wp_asagi(idx))
+            _btn_lay.addWidget(_up)
+            _btn_lay.addWidget(_dn)
+            self._wp_tablo.setCellWidget(i, 7, _btn_w)
+
         self._wp_tablo.blockSignals(False)
         self._wp_profil_guncelle()
 
@@ -3223,6 +3436,96 @@ class AnaPencere(QMainWindow):
         """WP tablosundaki komut tipi dropdown değişince listeyi güncelle."""
         if idx < len(self._wp_listesi):
             self._wp_listesi[idx]['komut'] = komut
+
+    def _wp_yukari(self, idx: int):
+        """Waypoint'i listede bir üste taşır."""
+        if idx <= 0 or idx >= len(self._wp_listesi):
+            return
+        self._wp_listesi[idx - 1], self._wp_listesi[idx] = \
+            self._wp_listesi[idx], self._wp_listesi[idx - 1]
+        self._wp_tablo_yenile()
+        self._wp_haritadan_yenile()
+
+    def _wp_asagi(self, idx: int):
+        """Waypoint'i listede bir alta taşır."""
+        if idx < 0 or idx >= len(self._wp_listesi) - 1:
+            return
+        self._wp_listesi[idx], self._wp_listesi[idx + 1] = \
+            self._wp_listesi[idx + 1], self._wp_listesi[idx]
+        self._wp_tablo_yenile()
+        self._wp_haritadan_yenile()
+
+    def _wp_haritadan_yenile(self):
+        """WP listesini JS haritasına yeniden gönderir (sıra değişiminden sonra)."""
+        import json as _json
+        self._js(f"wpListeYukle({_json.dumps(self._wp_listesi)});")
+
+    def _wp_dosya_yukle(self):
+        """QGC/Mission Planner .waypoints dosyasından WP listesini yükler."""
+        yol, _ = QFileDialog.getOpenFileName(
+            self, "Waypoint Dosyası Aç",
+            "", "Waypoint Dosyaları (*.waypoints *.txt);;Tüm Dosyalar (*)"
+        )
+        if not yol:
+            return
+        try:
+            yeni = []
+            with open(yol, encoding="utf-8", errors="replace") as f:
+                for satir in f:
+                    satir = satir.strip()
+                    if not satir or satir.startswith("QGC WPL") or satir.startswith("#"):
+                        continue
+                    parcalar = satir.split("\t")
+                    if len(parcalar) < 12:
+                        continue
+                    try:
+                        # Format: index current frame command p1 p2 p3 p4 lat lon alt autocont
+                        cmd_id  = int(parcalar[3])
+                        lat_f   = float(parcalar[8])
+                        lon_f   = float(parcalar[9])
+                        alt_f   = float(parcalar[10])
+                        # Komut kodu → isim
+                        _ters = {v: k for k, v in self._WP_KOMUT_KODLARI.items()}
+                        komut = _ters.get(cmd_id, "NAV_WAYPOINT")
+                        yeni.append({"lat": lat_f, "lon": lon_f, "alt": alt_f, "komut": komut})
+                    except (ValueError, IndexError):
+                        continue
+            if not yeni:
+                self._mesaj_ekle(3, "Dosyada geçerli waypoint bulunamadı.")
+                return
+            self._wp_listesi = yeni
+            self._wp_tablo_yenile()
+            self._wp_haritadan_yenile()
+            self._mesaj_ekle(4, f"{len(yeni)} waypoint dosyadan yüklendi: {yol}")
+        except Exception as exc:
+            self._mesaj_ekle(3, f"WP dosya yükleme hatası: {exc}")
+
+    def _wp_dosya_kaydet(self):
+        """WP listesini QGC/Mission Planner .waypoints formatında kaydeder."""
+        if not self._wp_listesi:
+            self._mesaj_ekle(3, "Kaydedilecek waypoint yok.")
+            return
+        yol, _ = QFileDialog.getSaveFileName(
+            self, "Waypoint Dosyası Kaydet",
+            "gorev.waypoints", "Waypoint Dosyaları (*.waypoints);;Tüm Dosyalar (*)"
+        )
+        if not yol:
+            return
+        try:
+            satirlar = ["QGC WPL 110"]
+            # index | current | frame | command | p1 | p2 | p3 | p4 | lat | lon | alt | autocontinue
+            for i, wp in enumerate(self._wp_listesi):
+                cmd_id = self._WP_KOMUT_KODLARI.get(wp.get("komut", "NAV_WAYPOINT"), 16)
+                current = 1 if i == 0 else 0
+                satirlar.append(
+                    f"{i}\t{current}\t3\t{cmd_id}\t0\t0\t0\t0"
+                    f"\t{wp['lat']:.8f}\t{wp['lon']:.8f}\t{wp.get('alt', 50):.1f}\t1"
+                )
+            with open(yol, "w", encoding="utf-8") as f:
+                f.write("\n".join(satirlar) + "\n")
+            self._mesaj_ekle(4, f"{len(self._wp_listesi)} waypoint kaydedildi: {yol}")
+        except Exception as exc:
+            self._mesaj_ekle(3, f"WP dosya kaydetme hatası: {exc}")
 
     def _sesli_uyan(self, metin: str):
         """Arka planda TTS ile sesli uyarı verir (Windows SAPI / espeak)."""
@@ -3841,7 +4144,7 @@ class SplashEkrani(QWidget):
     def _ui_olustur(self):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
-        self.setFixedSize(560, 360)
+        self.setFixedSize(680, 400)
 
         # Ortalama ekrana yerleştir
         ekran = QApplication.primaryScreen().geometry()
@@ -3854,48 +4157,47 @@ class SplashEkrani(QWidget):
         self.setStyleSheet("background-color: #0d1117;")
 
         ana = QVBoxLayout(self)
-        ana.setContentsMargins(48, 40, 48, 36)
+        ana.setContentsMargins(56, 40, 56, 36)
         ana.setSpacing(0)
 
         # ── Üst: logo + başlık ───────────────────────────────────────────────
         logo_lbl = QLabel("🛸")
         logo_lbl.setAlignment(Qt.AlignCenter)
-        logo_lbl.setStyleSheet("font-size: 64px; background: transparent;")
+        logo_lbl.setStyleSheet("font-size: 60px; background: transparent;")
         ana.addWidget(logo_lbl)
 
-        ana.addSpacing(12)
+        ana.addSpacing(10)
 
         baslik = QLabel("DOĞUŞ ÜNİVERSİTESİ LÖP")
         baslik.setAlignment(Qt.AlignCenter)
-        baslik.setFont(QFont("Segoe UI", 20, QFont.Bold))
+        baslik.setFont(QFont("Segoe UI", 22, QFont.Bold))
         baslik.setStyleSheet("color: #58a6ff; background: transparent;")
         ana.addWidget(baslik)
 
         altyazi = QLabel("Türkçe İnsansız Hava Aracı Yer İstasyonu")
         altyazi.setAlignment(Qt.AlignCenter)
-        altyazi.setFont(QFont("Segoe UI", 11))
+        altyazi.setFont(QFont("Segoe UI", 12))
         altyazi.setStyleSheet("color: #8b949e; background: transparent;")
         ana.addWidget(altyazi)
 
-        ana.addSpacing(8)
+        ana.addSpacing(10)
 
-        ayirici = QLabel("─" * 55)
+        ayirici = QLabel("─" * 64)
         ayirici.setAlignment(Qt.AlignCenter)
         ayirici.setStyleSheet("color: #21262d; background: transparent;")
         ana.addWidget(ayirici)
 
-        ana.addSpacing(20)
+        ana.addSpacing(16)
 
-        # ── Orta: özellik listesi ────────────────────────────────────────────
+        # ── Orta: özellik listesi — her özellik ayrı satırda, wordwrap açık ──
         ozellikler = QLabel(
-            "  ⬡  Çok Katmanlı Güvenli İniş Analizi       "
-            "⬡  Gerçek Zamanlı LIDAR Zemin Doğrulaması\n"
-            "  ⬡  RTL İzleyici & Otomatik Fallback          "
-            "⬡  Copernicus GLO-30 Terrain Entegrasyonu"
+            "Çok Katmanlı Güvenli İniş Analizi  ·  Gerçek Zamanlı LIDAR Zemin Doğrulaması\n"
+            "RTL İzleyici & Otomatik Fallback  ·  Copernicus GLO-30 Terrain Entegrasyonu"
         )
         ozellikler.setAlignment(Qt.AlignCenter)
-        ozellikler.setFont(QFont("Segoe UI", 8))
-        ozellikler.setStyleSheet("color: #3fb950; background: transparent; line-height: 180%;")
+        ozellikler.setWordWrap(True)
+        ozellikler.setFont(QFont("Segoe UI", 10))
+        ozellikler.setStyleSheet("color: #3fb950; background: transparent;")
         ana.addWidget(ozellikler)
 
         ana.addStretch()
