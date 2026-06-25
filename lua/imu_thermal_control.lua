@@ -60,7 +60,7 @@ local function sicaklik_oku(imu_idx)
   return t
 end
 
-local function soğuk_hava_mi()
+local function soguk_hava_mi()
   -- En soğuk IMU'ya bak ya da dış ortam sıcaklığı sensörü varsa onu kullan.
   -- Burada IMU 0'ı referans alıyoruz.
   local t = sicaklik_oku(0)
@@ -74,7 +74,7 @@ local function kontrol_et()
   collectgarbage()
   toplam_cevrim = toplam_cevrim + 1
 
-  local soguk_protokol = soğuk_hava_mi()
+  local soguk_protokol = soguk_hava_mi()
   local hedef, aktif_esik
 
   if soguk_protokol then

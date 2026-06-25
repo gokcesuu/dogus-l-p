@@ -35,9 +35,9 @@ from mavlink_handler import MAVLinkBaglantisi, UÇUŞ_MODLARI
 from ui_widgets import YapayUfukWidget, BataryaBar, SicaklikGostergesi, RuzgarGostergesi
 
 try:
-    from terrain_analiz import GuvenliInisAnalizci
-    TERRAIN_MEVCUT = True
-except ImportError:
+    import importlib.util as _ilu
+    TERRAIN_MEVCUT = _ilu.find_spec("terrain_analiz") is not None
+except Exception:
     TERRAIN_MEVCUT = False
 
 from gcs_logger import GCSLogger
@@ -224,6 +224,16 @@ HARITA_HTML = """<!DOCTYPE html>
     border-radius: 4px; border: 1px solid #2a4060;
     display: none; white-space: nowrap;
   }
+  @keyframes inisHedefNabiz {
+    0%   { transform: scale(0.7); opacity: 0.9; }
+    70%  { transform: scale(2.2); opacity: 0; }
+    100% { transform: scale(2.2); opacity: 0; }
+  }
+  .inis-hedef-nabiz {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(0, 230, 118, 0.55);
+    animation: inisHedefNabiz 1.4s ease-out infinite;
+  }
 </style>
 </head>
 <body>
@@ -236,6 +246,8 @@ HARITA_HTML = """<!DOCTYPE html>
       <option value="uydu">&#128752; Uydu</option>
       <option value="hibrit">&#127758; Hibrit</option>
       <option value="sokak">&#128506; Sokak</option>
+      <option value="topo">&#9968; Kontur</option>
+      <option value="gece">&#127761; Gece</option>
     </select>
     <button onclick="window.location.href='gcs://ucus-yolu-temizle'">U&ccedil;u&#351; Yolunu Temizle</button>
     <button class="green" id="analizBtn" onclick="window.location.href='gcs://guvenli-inis-baslat'">G&uuml;venli &#304;ni&#351; Analizi</button>
@@ -243,6 +255,11 @@ HARITA_HTML = """<!DOCTYPE html>
     <button class="red" id="inisBtn" disabled onclick="window.location.href='gcs://guvenli-inise-git'">&#128680; G&uuml;venli &#304;ni&#351;e Git</button>
     <button id="rallyBtn" style="background:#1a3c6a;border-color:#2a5c9a;" onclick="window.location.href='gcs://rally-yukle'" title="En iyi 5 g&uuml;venli noktay&#305; ArduPilot Rally Point olarak y&uuml;kle (Katman 2)">&#128225; Rally Y&uuml;kle</button>
     <button id="fenceBtn" style="background:#2a1a4a;border-color:#6a3a9a;" onclick="window.location.href='gcs://fence-yukle'" title="U&ccedil;u&#351; alan&#305; bounding box'&#305;ndan AC_Fence polygon y&uuml;kle -- ihlalde RTL">&#128274; Fence Y&uuml;kle</button>
+    <button id="fenceEditBtn" style="background:#2a1a4a;border-color:#6a3a9a;" onclick="fenceToggle()" title="Haritada tiklayarak fence polygon ciz">&#128312; Fence Ciz</button>
+    <button style="background:#3a0a4a;border-color:#aa00ff;" onclick="fenceBitir()" title="Cizilen fence polygon'u drone'a gondermek icin hazirladi">&#10003; Fence Bitir</button>
+    <button style="background:#2a1a4a;border-color:#cc55ff;" onclick="window.location.href='gcs://fence-polygon-yukle'" title="Haritada cizilen polygon'u ArduPilot'a FENCE_POINT protokoluyle yukle">&#9989; Polygon Yukle</button>
+    <button style="background:#1a001a;border-color:#6a006a;" onclick="fenceTemizle()" title="Fence cizimini temizle">&#128465; Fence Sil</button>
+    <button id="gridBtn" style="background:#1a3050;border-color:#2a6060;" onclick="gridToggle()" title="Alanı fareyle ciz → paralel tarama WP'leri otomatik olusturulur">&#128196; Grid</button>
     <button id="wpBtn" style="background:#1a2a3a;border-color:#b8860b;" onclick="wpToggle()" title="Haritaya tikla → waypoint ekle | Tekrar tıkla → modu kapat | Sag tik markera → sil">&#128205; WP Ekle</button>
     <button style="background:#1a3a1a;border-color:#4caf50;" onclick="window.location.href='gcs://wp-yukle'" title="Waypointleri drone'a yukle ve OTOMATİK moda gec">&#9654; Gorevi Yukle</button>
     <button style="background:#3a1a1a;border-color:#f44336;" onclick="window.location.href='gcs://wp-oku'" title="Drone'daki waypointleri oku ve haritada goster">&#11015; Drone'dan Oku</button>
@@ -261,7 +278,9 @@ var _ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
 var _TILE_URL = {
   uydu:   {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',           attr:'© Esri',    zoom:19},
   hibrit: {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',           attr:'© Esri',    zoom:19, yerAdi:true},
-  sokak:  {url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attr:'© CartoDB', zoom:19}
+  sokak:  {url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attr:'© CartoDB', zoom:19},
+  topo:   {url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',           attr:'© OpenTopoMap',  zoom:17},
+  gece:   {url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr:'© CartoDB', zoom:19}
 };
 var _YERADI_URL = _ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
 var _aktifKatman = null;
@@ -412,6 +431,53 @@ function guvenliNoktalariTemizle() {
   guvenliKatman.clearLayers();
   if (yaricapDairesi) { map.removeLayer(yaricapDairesi); yaricapDairesi = null; }
   document.getElementById('inisBtn').disabled = true;
+  if (typeof inisReddedilenKatman !== 'undefined') { inisReddedilenKatman.clearLayers(); }
+  if (typeof lidarTaramaKatman !== 'undefined') { lidarTaramaKatman.clearLayers(); }
+  if (typeof inisHedefTemizle === 'function') { inisHedefTemizle(); }
+}
+
+// ── LIDAR hover tarama görselleştirmesi ──────────────────────────────────────
+var lidarTaramaKatman    = L.layerGroup().addTo(map);   // canlı tarama noktaları (her denemede silinir)
+var inisReddedilenKatman = L.layerGroup().addTo(map);   // reddedilen noktalar (geçmiş — kalıcı)
+var inisHedefMarker      = null;   // aktif hedefteki nabız animasyonu
+
+function lidarTaramaGoster(lat, lon, etiket, yukseklikStr) {
+  L.circleMarker([lat, lon], {
+    radius: 6, color: '#29b6f6', fillColor: '#29b6f6',
+    fillOpacity: 0.85, weight: 2,
+  }).bindTooltip(
+    '<b>LIDAR — ' + etiket + '</b><br>Mesafe: ' + yukseklikStr + ' m',
+    {permanent: false, direction: 'top'}
+  ).addTo(lidarTaramaKatman);
+}
+
+function lidarTaramaTemizle() {
+  lidarTaramaKatman.clearLayers();
+}
+
+function inisNoktasiReddet(lat, lon, egimStr) {
+  L.circle([lat, lon], {
+    radius: 45, color: '#ef5350', fillColor: '#ef5350',
+    fillOpacity: 0.45, weight: 2, dashArray: '4,3',
+  }).bindTooltip(
+    '<b>✗ Reddedildi</b><br>LIDAR eğimi: ' + egimStr + '°',
+    {sticky: true}
+  ).addTo(inisReddedilenKatman);
+}
+
+function inisHedefGoster(lat, lon) {
+  inisHedefTemizle();
+  inisHedefMarker = L.marker([lat, lon], {
+    icon: L.divIcon({
+      html: '<div class="inis-hedef-nabiz"></div>',
+      iconSize: [22, 22], iconAnchor: [11, 11], className: '',
+    }),
+    zIndexOffset: 1000,
+  }).addTo(map);
+}
+
+function inisHedefTemizle() {
+  if (inisHedefMarker) { map.removeLayer(inisHedefMarker); inisHedefMarker = null; }
 }
 
 var _enYakinLat = null, _enYakinLon = null;
@@ -589,6 +655,9 @@ function _wpMarkerEkle(idx) {
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#ffcc80;"'
       + ' onmouseover="this.style.background=\'#2a2a1a\'" onmouseout="this.style.background=\'\'"'
       + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'LAND\')">Land Yap</div>'
+      + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#90caf9;"'
+      + ' onmouseover="this.style.background=\'#1a1a2a\'" onmouseout="this.style.background=\'\'"'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'DO_LAND_START\')">İniş Başlangıcı Yap</div>'
       + '</div>';
     _wpCtxPopup = L.popup({closeButton: false, offset: [0, -4], className: 'wp-ctx-popup'})
       .setLatLng(ev.latlng)
@@ -627,6 +696,22 @@ function wpKomutDegistir(idx, komut) {
     _wpTabloGonder();
     durumGoster('WP ' + (idx + 1) + ' → ' + komut);
   }
+}
+
+function wpAktifVurgula(idx) {
+  /* Drone'un aktif WP'sini yeşil, diğerlerini sarı göster. */
+  wpMarkerlar.forEach(function(m, i) {
+    var aktif = (i === idx);
+    m.setIcon(L.divIcon({
+      html: '<div style="background:' + (aktif ? '#00e676' : '#ffeb3b')
+          + ';color:#000;border-radius:50%;width:22px;height:22px;'
+          + 'display:flex;align-items:center;justify-content:center;'
+          + 'font-size:11px;font-weight:bold;border:2px solid '
+          + (aktif ? '#00c853' : '#f57f17') + ';">' + (i+1) + '</div>',
+      iconSize: [22,22], iconAnchor: [11,11], className: ''
+    }));
+    if (aktif && m.getTooltip()) m.openTooltip();
+  });
 }
 
 function wpSil(idx) {
@@ -690,6 +775,146 @@ function wpListeYukle(wpJsonStr) {
   }
   durumGoster(liste.length + ' waypoint drone\'dan yüklendi');
 }
+
+// ── Geofence Polygon Editörü ────────────────────────────────────────────────
+var fenceModAktif  = false;
+var fenceNoktalar  = [];   // [[lat,lon], ...]
+var fenceMarkerlar = [];
+var fencePolygon   = null;
+
+function fenceEditModAc() {
+  fenceModAktif = true;
+  map.getContainer().style.cursor = 'crosshair';
+  document.getElementById('fenceEditBtn').style.borderColor = '#e040fb';
+  document.getElementById('fenceEditBtn').style.background  = '#2a003a';
+  durumGoster('🔷 Fence modu: Haritaya tıklayarak köşe ekleyin, bitirmek için "Fence Bitir"e basın');
+}
+function fenceEditModKapat() {
+  fenceModAktif = false;
+  map.getContainer().style.cursor = '';
+  document.getElementById('fenceEditBtn').style.borderColor = '#6a3a9a';
+  document.getElementById('fenceEditBtn').style.background  = '#2a1a4a';
+}
+function fenceToggle() {
+  if (fenceModAktif) { fenceEditModKapat(); } else { fenceEditModAc(); }
+}
+function fenceBitir() {
+  fenceEditModKapat();
+  if (fenceNoktalar.length < 3) {
+    durumGoster('⚠ En az 3 köşe gerekli!');
+    return;
+  }
+  // Kapat (ilk noktayı sona ekle)
+  _fencePolygonGuncelle();
+  window.location.href = 'gcs://fence-cizildi?data=' + encodeURIComponent(JSON.stringify(fenceNoktalar));
+  durumGoster('🔷 Fence polygon gönderildi (' + fenceNoktalar.length + ' köşe) — Fence Yükle ile drone\'a gönderin');
+}
+function fenceTemizle() {
+  fenceMarkerlar.forEach(function(m) { map.removeLayer(m); });
+  fenceNoktalar = []; fenceMarkerlar = [];
+  if (fencePolygon) { map.removeLayer(fencePolygon); fencePolygon = null; }
+  fenceEditModKapat();
+  durumGoster('Fence temizlendi');
+}
+function _fenceNoktaEkle(lat, lon) {
+  var idx = fenceNoktalar.length;
+  fenceNoktalar.push([lat, lon]);
+  var ikon = L.divIcon({
+    html: '<div style="background:#e040fb;color:#fff;border-radius:50%;width:18px;height:18px;'
+        + 'display:flex;align-items:center;justify-content:center;font-size:10px;'
+        + 'font-weight:bold;border:2px solid #aa00ff;">' + (idx+1) + '</div>',
+    iconSize: [18,18], iconAnchor: [9,9], className: ''
+  });
+  var m = L.marker([lat, lon], {icon: ikon, draggable: true}).addTo(map);
+  m.bindTooltip('Fence ' + (idx+1) + '<br>' + lat.toFixed(5) + ', ' + lon.toFixed(5) + '<br><i>Sağ tık → sil</i>', {sticky:true});
+  m.on('drag', function(ev) {
+    fenceNoktalar[idx] = [ev.latlng.lat, ev.latlng.lng];
+    _fencePolygonGuncelle();
+  });
+  m.on('contextmenu', function() {
+    map.removeLayer(m);
+    fenceNoktalar.splice(idx, 1);
+    fenceMarkerlar.splice(idx, 1);
+    _fencePolygonGuncelle();
+  });
+  fenceMarkerlar.push(m);
+  _fencePolygonGuncelle();
+}
+function _fencePolygonGuncelle() {
+  if (fencePolygon) map.removeLayer(fencePolygon);
+  if (fenceNoktalar.length < 2) { fencePolygon = null; return; }
+  fencePolygon = L.polygon(fenceNoktalar, {
+    color: '#e040fb', weight: 2, fillOpacity: 0.08
+  }).addTo(map);
+}
+
+// Harita click handler — fence modunda tıklama
+(function() {
+  var _origClick = map._events && map._events.click;
+})();
+map.on('click', function(e) {
+  if (fenceModAktif) {
+    _fenceNoktaEkle(e.latlng.lat, e.latlng.lng);
+  }
+});
+
+// Python → JS: fence noktalarını haritaya yükle (drone'dan okunan)
+function fenceListeGoster(noktalarJsonStr) {
+  fenceTemizle();
+  var liste = JSON.parse(noktalarJsonStr);
+  liste.forEach(function(n) { _fenceNoktaEkle(n[0], n[1]); });
+  if (liste.length > 0) {
+    map.fitBounds(fencePolygon ? fencePolygon.getBounds() : map.getBounds(), {padding:[30,30]});
+  }
+  durumGoster('Fence: ' + liste.length + ' köşe yüklendi');
+}
+
+// Grid Generator — paralel çizgi WP üretici
+var gridPolygon   = null;
+var gridNoktalar  = [];
+var gridModAktif  = false;
+var gridBaslangic = null;
+var gridGeciciRect= null;
+
+function gridModAc() {
+  gridModAktif = true;
+  map.getContainer().style.cursor = 'crosshair';
+  document.getElementById('gridBtn').style.borderColor = '#00bcd4';
+  document.getElementById('gridBtn').style.background  = '#002a30';
+  durumGoster('📐 Grid modu: Sol tıkla-sürükle alanı çiz, bırakınca grid WP\'leri oluşturulur');
+}
+function gridModKapat() {
+  gridModAktif = false;
+  map.getContainer().style.cursor = '';
+  var btn = document.getElementById('gridBtn');
+  if (btn) { btn.style.borderColor = '#2a6060'; btn.style.background = '#1a3050'; }
+}
+function gridToggle() {
+  if (gridModAktif) { gridModKapat(); } else { gridModAc(); }
+}
+
+map.on('mousedown', function(e) {
+  if (!gridModAktif) return;
+  L.DomEvent.stop(e);
+  gridBaslangic = e.latlng;
+  if (gridGeciciRect) { map.removeLayer(gridGeciciRect); gridGeciciRect = null; }
+});
+map.on('mousemove', function(e) {
+  if (!gridModAktif || !gridBaslangic) return;
+  var b = L.latLngBounds(gridBaslangic, e.latlng);
+  if (gridGeciciRect) { gridGeciciRect.setBounds(b); }
+  else { gridGeciciRect = L.rectangle(b, {color:'#00bcd4', weight:2, fillOpacity:0.06}).addTo(map); }
+});
+map.on('mouseup', function(e) {
+  if (!gridModAktif || !gridBaslangic) return;
+  var b   = L.latLngBounds(gridBaslangic, e.latlng);
+  var sw  = b.getSouthWest(), ne = b.getNorthEast();
+  gridBaslangic = null;
+  gridModKapat();
+  if (gridGeciciRect) { map.removeLayer(gridGeciciRect); gridGeciciRect = null; }
+  window.location.href = 'gcs://grid-uret?lat1=' + sw.lat + '&lon1=' + sw.lng
+      + '&lat2=' + ne.lat + '&lon2=' + ne.lng;
+});
 </script>
 </body>
 </html>"""
@@ -728,6 +953,8 @@ MINI_HARITA_HTML = """<!DOCTYPE html>
   <select id="katmanSec" onchange="katmanDegistir(this.value)">
     <option value="uydu">Uydu</option>
     <option value="sokak">Sokak</option>
+    <option value="topo">Kontur</option>
+    <option value="gece">Gece</option>
   </select>
   <button onclick="droneOdakla()">Drone</button>
   <button onclick="izTemizle()">Yol Sil</button>
@@ -738,8 +965,10 @@ MINI_HARITA_HTML = """<!DOCTYPE html>
 var _ERR_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 var _ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
 var _TILE_CFG = {
-  uydu:  {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'Esri', zoom:19},
-  sokak: {url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attr:'CartoDB', zoom:19}
+  uydu:  {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',                           attr:'Esri',    zoom:19},
+  sokak: {url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',   attr:'CartoDB', zoom:19},
+  topo:  {url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',                           attr:'OpenTopoMap', zoom:17},
+  gece:  {url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',              attr:'CartoDB', zoom:19}
 };
 var map = L.map('map', {zoomControl:true, attributionControl:false, preferCanvas:true})
            .setView([39.9, 32.8], 6);
@@ -904,6 +1133,36 @@ if HARITA_MEVCUT:
                         except ValueError as _err:
                             self._gcs._mesaj_ekle(3, f"Alan cizimi: koordinat okunamadi ({_err}).")
                     _defer(_alan_cizildi)
+                elif eylem == 'fence-polygon-yukle':
+                    _defer(self._gcs._fence_polygon_yukle)
+                elif eylem == 'fence-cizildi':
+                    # JS'den çizilen fence polygon → Python state'e kaydet
+                    try:
+                        import urllib.parse as _up
+                        raw = QUrlQuery(url).queryItemValue('data')
+                        noktalar = json.loads(_up.unquote(raw))
+                        self._gcs._fence_noktalar = noktalar
+                        self._gcs._mesaj_ekle(6,
+                            f"🔷 Fence polygon hazır: {len(noktalar)} köşe — "
+                            "'Fence Yükle' ile drone'a gönderin.")
+                    except Exception as _fe:
+                        self._gcs._mesaj_ekle(3, f"Fence çizimi: veri okunamadı ({_fe}).")
+                elif eylem == 'grid-uret':
+                    def _grid_uret():
+                        try:
+                            q = QUrlQuery(url)
+                            lat1 = float(q.queryItemValue('lat1'))
+                            lon1 = float(q.queryItemValue('lon1'))
+                            lat2 = float(q.queryItemValue('lat2'))
+                            lon2 = float(q.queryItemValue('lon2'))
+                            # Grid ayar dialogu — ana thread'de aç
+                            self._gcs._grid_ayar_ve_uret(
+                                min(lat1,lat2), max(lat1,lat2),
+                                min(lon1,lon2), max(lon1,lon2)
+                            )
+                        except Exception as _ge:
+                            self._gcs._mesaj_ekle(3, f"Grid hatası: {_ge}")
+                    _defer(_grid_uret)
                 return False  # gezinme yapma
             return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
@@ -981,21 +1240,25 @@ class TerrainAnalizThread(QThread):
     hata       = Signal(str)
 
     def __init__(self, lat, lon, batarya_yuzde,
-                 ruzgar_ms: float = 0.0, ruzgar_yonu_derece: float = 0.0):
+                 ruzgar_ms: float = 0.0, ruzgar_yonu_derece: float = 0.0,
+                 min_hucre_volt: float = 0.0):
         super().__init__()
         self.lat = lat
         self.lon = lon
         self.batarya_yuzde = batarya_yuzde
         self.ruzgar_ms = ruzgar_ms
         self.ruzgar_yonu_derece = ruzgar_yonu_derece
+        self.min_hucre_volt = min_hucre_volt
 
     def run(self):
         try:
+            from terrain_analiz import GuvenliInisAnalizci   # srtm yükü burada — bg thread
             analizci = GuvenliInisAnalizci()
             sonuc = analizci.analiz_et(
                 self.lat, self.lon, self.batarya_yuzde,
                 ruzgar_ms=self.ruzgar_ms,
                 ruzgar_yonu_derece=self.ruzgar_yonu_derece,
+                min_hucre_volt=self.min_hucre_volt,
             )
             self.tamamlandi.emit(sonuc)
         except Exception as e:
@@ -1152,7 +1415,9 @@ class AnaPencere(QMainWindow):
         self._ev_lat = 0.0
         self._logger = GCSLogger()
         self._ucus_kaydedici = UcusKaydedici()   # uçuş sonrası HTML rapor için
-        self._son_rapor_yolu = ""               # son üretilen HTML rapor yolu
+        self._son_rapor_yolu      = ""      # son üretilen HTML rapor yolu
+        self._onceki_arm_durumu   = False   # bir önceki heartbeat'teki ARM durumu
+        self._ucus_yapildi        = False   # bu bağlantıda en az bir kez ARM oldu mu
         self._log_satiri: dict = {}  # her saniye doldurulup CSV'ye yazılır
         self._log_timer = QTimer()
         self._log_timer.setInterval(1000)
@@ -1176,6 +1441,7 @@ class AnaPencere(QMainWindow):
         self._ruz_tehlikeli_ms = float(_cfg.al("ruzgar.tehlikeli_ms", 11.1))
         self._ruz_kritik_ms    = float(_cfg.al("ruzgar.kritik_ms",    16.7))
         self._ruz_ema          = 0.0   # üstel hareketli ortalama (m/s)
+        self._ruz_ema_alpha    = float(_cfg.al("ruzgar.ema_alpha", 0.25))  # filtre katsayısı
 
         # Rüzgar gradient modeli (Hellmann Güç Yasası)
         self._ruz_hellmann       = float(_cfg.al("ruzgar.hellmann_alpha", 0.14))
@@ -1183,6 +1449,20 @@ class AnaPencere(QMainWindow):
         self._ruz_trend_pencere  = int(_cfg.al("ruzgar.trend_pencere_sn", 60))
         self._ruz_zemin_ms       = 0.0   # Hellmann ile tahmin edilen zemin rüzgarı (m/s)
         self._ruz_trend_ms_per_s = 0.0   # Trend: m/s/saniye (+ artıyor, - azalıyor)
+        # Gust irtifa yönetimi
+        self._ruz_irtifa_ayarli  = False  # Şu an gust nedeniyle irtifa düşürüldü mü
+        self._ruz_irtifa_onceki  = 0.0    # Gust öncesi irtifa — geri çıkmak için
+        self._arm_durumu         = False  # Son heartbeat'ten ARM durumu
+        # Sürekli yüksek rüzgar irtifa yönetimi (gust değil, EMA yüksek)
+        self._ruz_surekli_ayarli      = False   # EMA nedeniyle irtifa düşürüldü mü
+        self._ruz_surekli_irt_onceki  = 0.0     # Önceki irtifa
+        self._ruz_surekli_son_t       = 0.0     # Son kontrol zamanı
+        # Trend bazlı irtifa yönetimi
+        self._ruz_trend_irtifa_verildi = False   # Trend uyarısı sonrası irtifa komutu verildi mi
+        # Hız kısıtlaması
+        self._ruz_hiz_kisitlandi      = False    # Rüzgar nedeniyle hız düşürüldü mü
+        self._ruz_hiz_onceki          = 0.0      # Önceki hız (m/s)
+        self._ruz_trend_esik     = float(_cfg.al("ruzgar.trend_esik", 0.03))  # ↑↓→ gösterge eşiği
         from collections import deque as _deque
         self._ruz_gecmis: _deque = _deque(maxlen=self._ruz_trend_pencere)  # (t, hiz_ms) çiftleri
 
@@ -1195,7 +1475,7 @@ class AnaPencere(QMainWindow):
         self._gust_alarm_verildi = False
 
         # Rüzgar kalitesi filtreleri — Cube Orange EKF gürültüsünü engeller
-        self._ekf_ruzgar_gecerli  = False   # EKF_STATUS_REPORT bayrak 0+1 (tutum+yatay hız)
+        self._ekf_ruzgar_gecerli  = False   # EKF_STATUS_REPORT bayrak 0+1+2 (tutum+yatay+dikey hız)
         self._ekf_bayraklar       = 0       # Son gelen EKF bayrakları (tam)
         self._guncel_vibrasyon_mss = 0.0   # VIBRATION RMS m/s² (Cube Orange normal < 15)
         self._guncel_vib_klip     = 0      # IMU saturation sayacı (> 0 = çok yüksek)
@@ -1233,25 +1513,29 @@ class AnaPencere(QMainWindow):
         self._terrain_thread = None   # _harita_sekme()'de de set edilir; burada erken init
         self._rally_thread = None
         self._fence_thread = None
+        self._fence_noktalar: list = []        # haritadan çizilen fence polygon [[lat,lon], ...]
         self._alan_hazirlik_yapildi = False   # ilk GPS fix'te bir kez tetikle
         self._wp_listesi: list = []            # waypoint görev listesi [{lat,lon,alt}, ...]
+        # RC / Fence / WP aktif takip
+        self._rc_failsafe_aktif = False
+        self._fence_ihlal_son   = 0
+        self._aktif_wp_seq      = 0
+        self._adsb_tts_son: dict = {}          # {icao: monotonic_zaman} — TTS spam önleme
+        # Batarya hücre takibi
+        self._min_hucre_volt    = 0.0          # BATTERY_STATUS'tan, 0=bilinmiyor
         self._alan_bounds: "tuple | None" = None  # (lat_min, lat_max, lon_min, lon_max)
+        self._alan_karar_yukleniyor = False   # arka plan okuma sürerken yazma/yeniden-indirme tetiklenmesin
         _npz = os.path.join(os.path.dirname(__file__), "alan_verisi.npz")
         if not os.path.isfile(_npz):
             _npz = "alan_verisi.npz"       # çalışma dizininde ara
         if os.path.isfile(_npz):
-            try:
-                import numpy as _np_init
-                _data = _np_init.load(_npz)
-                if "bounds" in _data:
-                    _b = _data["bounds"]   # [lon_min, lat_min, lon_max, lat_max]
-                    self._alan_bounds = (float(_b[1]), float(_b[3]),
-                                         float(_b[0]), float(_b[2]))
-                from alan_inis_karar import AlanInisKarar
-                self._alan_karar = AlanInisKarar(_npz)
-                self._mesaj_ekle(6, f"Alan veri dosyası yüklendi: {os.path.basename(_npz)}")
-            except Exception as _e:
-                self._mesaj_ekle(3, f"Alan verisi yüklenemedi: {_e}")
+            # np.load + AlanInisKarar ağır olabilir — main thread'i bloklamasın,
+            # arka planda yüklenip sonuç QTimer.singleShot(0, ...) ile UI'a aktarılır.
+            self._alan_karar_yukleniyor = True
+            import threading as _threading_init
+            _threading_init.Thread(
+                target=self._alan_karar_arka_planda_yukle, args=(_npz,), daemon=True
+            ).start()
 
         self._durum_guncelle("Bağlantı bekleniyor…", "#ffc107")
 
@@ -1292,6 +1576,13 @@ class AnaPencere(QMainWindow):
         m.terrain_rapor.connect(self._terrain_rapor_guncelle)
         m.mission_yuklendi.connect(self._wp_mission_yuklendi)
         m.mission_alindi.connect(self._wp_mission_alindi)
+        m.mission_wp_degisti.connect(self._mission_wp_degisti)
+        m.komut_onaylandi.connect(self._komut_onaylandi)
+        m.rc_guncellendi.connect(self._rc_guncellendi)
+        m.fence_ihlal.connect(self._fence_ihlal_handler)
+        m.ev_noktasi_guncellendi.connect(self._ev_noktasi_guncelle)
+        m.batarya_hucre_guncellendi.connect(self._batarya_hucre_guncelle)
+        m.servo_doyum_guncellendi.connect(self._servo_doyum_guncelle)
 
     # ── UI ───────────────────────────────────────────────────────────────────
 
@@ -1336,6 +1627,7 @@ class AnaPencere(QMainWindow):
             eksik.setAlignment(Qt.AlignCenter)
             self._harita_tab_hazir = True
             self._harita_tab_index = self._sekmeler.addTab(eksik, "Harita")
+        self._sekmeler.addTab(self._log_sekme(), "📋 Log İndir")
         self._sekmeler.currentChanged.connect(self._sekme_degisti)
         ana.addWidget(self._sekmeler)
 
@@ -1448,6 +1740,13 @@ class AnaPencere(QMainWindow):
             f"color:#666; background:#111; border:1px solid #2a2a2a; {_BADGE}"
         )
         duz.addWidget(self._ekf_lbl)
+
+        # ── RC sinyal rozeti ──────────────────────────────────────────────────
+        self._rc_lbl = QLabel("RC: —")
+        self._rc_lbl.setStyleSheet(
+            f"color:#666; background:#111; border:1px solid #2a2a2a; {_BADGE}"
+        )
+        duz.addWidget(self._rc_lbl)
 
         return bar
 
@@ -1899,10 +2198,11 @@ class AnaPencere(QMainWindow):
         acil_lay.setContentsMargins(4, 4, 4, 4)
         acil_lay.setSpacing(3)
         for (ad, slot, kirmizi) in [
-            ("EV'E DÖN (RTL)", self._rtl_tikla,      True),
-            ("ACİL İNİŞ",      self._inis_tikla,      True),
+            ("EV'E DÖN (RTL)", self._rtl_tikla,       True),
+            ("ACİL İNİŞ",      self._inis_tikla,       True),
             ("HOVERING",       self._hovering_tikla,  False),
             ("DEVAM ET",       self._devam_tikla,     False),
+            ("🪂 PARAŞÜT",     self._parasut_tikla,   True),
         ]:
             b = QPushButton(ad)
             b.setMaximumHeight(32)
@@ -1917,14 +2217,14 @@ class AnaPencere(QMainWindow):
         mod_lay = QHBoxLayout(mod_grp)
         mod_lay.setContentsMargins(4, 4, 4, 4)
         mod_lay.setSpacing(3)
-        for (ad, mid) in [("SABİTLEME", 0), ("LOITER", 5), ("OTOMATİK", 3), ("KILAVUZ", 4)]:
+        for (ad, mid) in [("SABİTLEME", 0), ("LOITER", 5), ("FREN", 12), ("OTOMATİK", 3), ("KILAVUZ", 4), ("SMART RTL", 22)]:
             b = QPushButton(ad)
             b.setMaximumHeight(32)
             b.clicked.connect(lambda _, m=mid: self._mod_tikla(m))
             mod_lay.addWidget(b)
         lay.addWidget(mod_grp, 4)
 
-        # Diğer (Ev + Terrain/ADSB)
+        # Diğer (Ev + Kalibrasyon + Terrain/ADSB)
         diger_grp = QGroupBox("Diğer")
         diger_lay = QHBoxLayout(diger_grp)
         diger_lay.setContentsMargins(4, 4, 4, 4)
@@ -1933,6 +2233,11 @@ class AnaPencere(QMainWindow):
         ev_btn.setMaximumHeight(32)
         ev_btn.clicked.connect(self._ev_yap_tikla)
         diger_lay.addWidget(ev_btn)
+        kal_btn = QPushButton("🔧 Kalibrasyon")
+        kal_btn.setMaximumHeight(32)
+        kal_btn.setToolTip("Gyro + Manyetometre + İvmeölçer kalibrasyonu (PREFLIGHT_CALIBRATION)")
+        kal_btn.clicked.connect(self._kalibrasyon_tikla)
+        diger_lay.addWidget(kal_btn)
         self._terrain_yukseklik_lbl = QLabel("Arazi: —")
         self._terrain_yukseklik_lbl.setFont(QFont("Courier New", 9))
         self._adsb_sayac_lbl = QLabel("ADSB: 0")
@@ -2036,6 +2341,11 @@ class AnaPencere(QMainWindow):
         self._param_geri_yukle_btn.clicked.connect(self._param_geri_yukle_tikla)
         araci.addWidget(self._param_geri_yukle_btn)
 
+        self._param_karsilastir_btn = QPushButton("🔍 Karşılaştır")
+        self._param_karsilastir_btn.setToolTip("Mevcut parametreleri bir JSON yedekle karşılaştır")
+        self._param_karsilastir_btn.clicked.connect(self._param_karsilastir_tikla)
+        araci.addWidget(self._param_karsilastir_btn)
+
         araci.addStretch()
 
         araci.addWidget(QLabel("Ara:"))
@@ -2078,6 +2388,144 @@ class AnaPencere(QMainWindow):
         self._param_ui_hazir = True
         return w
 
+    # ── Uçuş Logu İndirme Sekmesi ─────────────────────────────────────────────
+
+    def _log_sekme(self) -> QWidget:
+        """Log listesi + indirme arayüzü."""
+        w = QWidget()
+        duz = QVBoxLayout(w)
+        duz.setContentsMargins(6, 6, 6, 6)
+        duz.setSpacing(6)
+
+        # Araç çubuğu
+        araci = QHBoxLayout()
+        self._log_listele_btn = QPushButton("📋 Log Listesini Al")
+        self._log_listele_btn.setStyleSheet(BAĞLAN_STILI)
+        self._log_listele_btn.clicked.connect(self._log_listele_tikla)
+        araci.addWidget(self._log_listele_btn)
+
+        self._log_indir_btn = QPushButton("⬇ Seçili Logu İndir")
+        self._log_indir_btn.clicked.connect(self._log_indir_tikla)
+        araci.addWidget(self._log_indir_btn)
+
+        self._log_ac_btn = QPushButton("📂 Kaydedilen Logu Aç")
+        self._log_ac_btn.clicked.connect(self._log_ac_tikla)
+        araci.addWidget(self._log_ac_btn)
+
+        araci.addStretch()
+        self._log_durum_lbl = QLabel("Drone'a bağlanın ve log listesini alın.")
+        self._log_durum_lbl.setStyleSheet("color:#7eb8e0; font-size:11px;")
+        araci.addWidget(self._log_durum_lbl)
+        duz.addLayout(araci)
+
+        # İlerleme çubuğu
+        self._log_progress = QProgressBar()
+        self._log_progress.setMaximumHeight(14)
+        self._log_progress.setValue(0)
+        self._log_progress.hide()
+        duz.addWidget(self._log_progress)
+
+        # Log tablosu
+        self._log_tablo = QTableWidget(0, 3)
+        self._log_tablo.setHorizontalHeaderLabels(["Log ID", "Boyut", "Tarih (UTC)"])
+        self._log_tablo.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self._log_tablo.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._log_tablo.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._log_tablo.setAlternatingRowColors(True)
+        self._log_tablo.setStyleSheet(
+            "QTableWidget { background:#0d1b2a; color:#c8d8e8; gridline-color:#1a3050; }"
+            "QHeaderView::section { background:#0d2040; color:#7eb8e0; padding:4px; }"
+            "QTableWidget::item:alternate { background:#0a1520; }"
+            "QTableWidget::item:selected { background:#1a3060; }"
+        )
+        duz.addWidget(self._log_tablo)
+
+        # Sinyal bağlantıları
+        m = self._mavlink
+        m.log_listesi_alindi.connect(self._log_listesi_goster)
+        m.log_ilerleme.connect(self._log_ilerleme_goster)
+        m.log_tamamlandi.connect(self._log_indir_tamamlandi)
+        m.log_hata.connect(lambda e: self._mesaj_ekle(3, f"Log hatası: {e}"))
+
+        self._son_log_yolu: str = ""
+        return w
+
+    def _log_listele_tikla(self):
+        if not self._bagli:
+            QMessageBox.warning(self, "Bağlantı Yok", "Önce drone'a bağlanın.")
+            return
+        self._log_durum_lbl.setText("Log listesi alınıyor…")
+        self._mavlink.log_listesi_iste()
+
+    def _log_listesi_goster(self, loglar: list):
+        self._log_tablo.setRowCount(0)
+        for lg in loglar:
+            r = self._log_tablo.rowCount()
+            self._log_tablo.insertRow(r)
+            self._log_tablo.setItem(r, 0, QTableWidgetItem(str(lg["id"])))
+            boyut_kb = lg["size"] / 1024.0
+            boyut_str = f"{boyut_kb:.0f} KB" if boyut_kb < 1024 else f"{boyut_kb/1024:.1f} MB"
+            self._log_tablo.setItem(r, 1, QTableWidgetItem(boyut_str))
+            import datetime
+            t = lg.get("time_utc", 0)
+            tarih = datetime.datetime.utcfromtimestamp(t).strftime("%Y-%m-%d %H:%M") if t else "—"
+            self._log_tablo.setItem(r, 2, QTableWidgetItem(tarih))
+        self._log_durum_lbl.setText(f"{len(loglar)} log bulundu.")
+        self._mesaj_ekle(6, f"Log listesi: {len(loglar)} log.")
+
+    def _log_indir_tikla(self):
+        if not self._bagli:
+            QMessageBox.warning(self, "Bağlantı Yok", "Önce drone'a bağlanın.")
+            return
+        secili = self._log_tablo.selectedItems()
+        if not secili:
+            QMessageBox.warning(self, "Seçim Yok", "İndirilecek bir log satırı seçin.")
+            return
+        satir = self._log_tablo.currentRow()
+        log_id = int(self._log_tablo.item(satir, 0).text())
+        import datetime
+        varsayilan = f"log_{log_id}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.BIN"
+        dosya, _ = QFileDialog.getSaveFileName(
+            self, "Log Kaydet", varsayilan,
+            "BIN Logu (*.BIN);;Tüm Dosyalar (*)"
+        )
+        if not dosya:
+            return
+        self._log_progress.show()
+        self._log_progress.setValue(0)
+        self._log_durum_lbl.setText(f"Log {log_id} indiriliyor…")
+        self._mavlink.log_indir(log_id, dosya)
+
+    def _log_ilerleme_goster(self, alinan: int, toplam: int):
+        if toplam > 0:
+            self._log_progress.setValue(int(alinan * 100 / toplam))
+            self._log_durum_lbl.setText(f"İndiriliyor: {alinan//1024} / {toplam//1024} KB")
+
+    def _log_indir_tamamlandi(self, yol: str):
+        self._log_progress.hide()
+        self._log_progress.setValue(0)
+        self._son_log_yolu = yol
+        self._log_durum_lbl.setText(f"✓ İndirildi: {os.path.basename(yol)}")
+        self._mesaj_ekle(4, f"✓ Log indirildi → {yol}")
+        QMessageBox.information(self, "Log İndirildi",
+            f"Log başarıyla kaydedildi:\n{yol}\n\nMission Planner veya PyFlightLog ile açabilirsiniz.")
+
+    def _log_ac_tikla(self):
+        """Son indirilen log dosyasını OS'un varsayılan uygulamasıyla aç."""
+        if not self._son_log_yolu or not os.path.isfile(self._son_log_yolu):
+            dosya, _ = QFileDialog.getOpenFileName(
+                self, "Log Dosyası Aç", "",
+                "BIN Logu (*.BIN);;Tüm Dosyalar (*)"
+            )
+            if not dosya:
+                return
+            self._son_log_yolu = dosya
+        import subprocess
+        try:
+            os.startfile(self._son_log_yolu)   # Windows
+        except AttributeError:
+            subprocess.Popen(["xdg-open", self._son_log_yolu])  # Linux
+
     # ── Harita sekmesi ────────────────────────────────────────────────────────
 
     def _harita_sekme(self) -> QWidget:
@@ -2112,6 +2560,18 @@ class AnaPencere(QMainWindow):
         _ozet_satir.addWidget(self._wp_mesafe_lbl)
         _ozet_satir.addWidget(self._wp_sure_lbl)
         _ozet_satir.addStretch()
+
+        _wp_git_btn = QPushButton("▶ Seçili WP'ye Git")
+        _wp_git_btn.setFixedHeight(22)
+        _wp_git_btn.setToolTip("Uçuş sırasında seçili waypoint'e atla (MISSION_SET_CURRENT)")
+        _wp_git_btn.setStyleSheet(
+            "QPushButton { background:#1a3a1a; color:#a5d6a7; border:1px solid #2a5a2a;"
+            " border-radius:3px; font-size:11px; padding:0 6px; }"
+            "QPushButton:hover { background:#2a5a2a; }"
+        )
+        _wp_git_btn.clicked.connect(self._wp_git_tikla)
+        _ozet_satir.addWidget(_wp_git_btn)
+
         duz.addLayout(_ozet_satir)
 
         # ── Ayarlar çubuğu (Mission Planner tarzı) ────────────────────────────
@@ -2173,17 +2633,24 @@ class AnaPencere(QMainWindow):
         duz.addLayout(_ayar_satir)
 
         # ── Waypoint tablosu (haritanın altında) ──────────────────────────────
-        # Sütunlar: # | Komut | Enlem | Boylam | İrtifa | Mesafe | AZ | ↑↓
-        self._wp_tablo = QTableWidget(0, 8)
+        # Sütunlar: # | Komut | P1 | Enlem | Boylam | İrtifa | Mesafe | AZ | ↑↓
+        self._wp_tablo = QTableWidget(0, 11)
         self._wp_tablo.setHorizontalHeaderLabels(
-            ["#", "Komut", "Enlem", "Boylam", "İrtifa (m)", "Mesafe (m)", "AZ (°)", ""]
+            ["#", "Komut", "P1", "P2", "P3", "Enlem", "Boylam", "İrtifa (m)", "Mesafe (m)", "AZ (°)", ""]
         )
+        # Sütun dizini: #=0, Komut=1, P1=2, P2=3, P3=4, Enlem=5, Boylam=6, İrtifa=7, Mesafe=8, AZ=9, btn=10
         _hh = self._wp_tablo.horizontalHeader()
         _hh.setSectionResizeMode(QHeaderView.ResizeToContents)
-        _hh.setSectionResizeMode(2, QHeaderView.Stretch)   # Enlem — genişle
-        _hh.setSectionResizeMode(3, QHeaderView.Stretch)   # Boylam — genişle
-        _hh.setSectionResizeMode(7, QHeaderView.Fixed)
-        self._wp_tablo.setColumnWidth(7, 56)               # ↑↓ buton sütunu
+        _hh.setSectionResizeMode(5, QHeaderView.Stretch)   # Enlem — genişle
+        _hh.setSectionResizeMode(6, QHeaderView.Stretch)   # Boylam — genişle
+        _hh.setSectionResizeMode(2, QHeaderView.Fixed)
+        _hh.setSectionResizeMode(3, QHeaderView.Fixed)
+        _hh.setSectionResizeMode(4, QHeaderView.Fixed)
+        _hh.setSectionResizeMode(10, QHeaderView.Fixed)
+        self._wp_tablo.setColumnWidth(2, 48)               # P1 sütunu
+        self._wp_tablo.setColumnWidth(3, 48)               # P2 sütunu
+        self._wp_tablo.setColumnWidth(4, 48)               # P3 sütunu
+        self._wp_tablo.setColumnWidth(10, 56)              # ↑↓ buton sütunu
         self._wp_tablo.setMaximumHeight(165)
         self._wp_tablo.setMinimumHeight(80)
         self._wp_tablo.setEditTriggers(QAbstractItemView.DoubleClicked)
@@ -2276,6 +2743,10 @@ class AnaPencere(QMainWindow):
             self._mini_harita_hazir = True
             QTimer.singleShot(350, self._mini_harita_boyut_duzelt)
             QTimer.singleShot(800, self._mini_harita_boyut_duzelt)
+            # Ana harita Chromium process'ini mini-harita yüklendikten sonra başlat —
+            # ikisi aynı anda kurulmasın, startup'taki tepe yükü ikiye bölünsün.
+            if HARITA_MEVCUT and not self._harita_tab_hazir:
+                QTimer.singleShot(150, self._harita_tab_yukle)
 
         self._mini_harita_view.loadFinished.connect(_yukle_tamamlandi)
         self._mini_harita_view.setHtml(MINI_HARITA_HTML)
@@ -2347,6 +2818,7 @@ class AnaPencere(QMainWindow):
         self._baglan_btn.setEnabled(False)
         self._kes_btn.setEnabled(True)
         self._mesaj_ekle(6, "Bağlantı kuruldu.")
+        self._js_timer.setInterval(200)    # bağlı iken harita 5 Hz akıcı güncellensin
         self._hb_timer.start()
         self._logger.baslat()
         self._ucus_kaydedici.baslat()
@@ -2366,6 +2838,7 @@ class AnaPencere(QMainWindow):
         self._log_timer.stop()
         self._logger.durdur()
         self._ucus_kaydedici.durdur()
+        self._js_timer.setInterval(1000)   # bağlı değilken harita güncellemesi gereksiz — yavaşlat
         self._rapor_olustur_arka_plan()
 
     def _rapor_olustur_arka_plan(self):
@@ -2377,6 +2850,34 @@ class AnaPencere(QMainWindow):
                 self._son_rapor_yolu = yol
         except Exception as e:
             self._mesaj_ekle(3, f"Rapor oluşturulamadı: {e}")
+
+    def _inis_sonrasi_rapor(self):
+        """
+        DISARM algılandıktan 5 sn sonra çağrılır.
+        HTML raporu arka plan thread'inde üretir, bitince:
+          - Mesaj loguna "📊 Rapor hazır" yazar
+          - Tarayıcıda otomatik açar
+          - Son_rapor_yolu günceller
+        """
+        import threading as _thr
+        import webbrowser as _wb
+
+        def _uret():
+            try:
+                yol = self._ucus_kaydedici.html_rapor_olustur()
+                if not yol:
+                    return
+                self._son_rapor_yolu = yol
+                # Qt sinyalini ana thread'e gönder — lambda QTimer trick
+                QTimer.singleShot(0, lambda: (
+                    self._mesaj_ekle(4,
+                        f"📊 Uçuş raporu hazır: {os.path.basename(yol)} — tarayıcıda açılıyor."),
+                    _wb.open(f"file:///{yol.replace(os.sep, '/')}")
+                ))
+            except Exception as exc:
+                QTimer.singleShot(0, lambda: self._mesaj_ekle(3, f"İniş raporu hatası: {exc}"))
+
+        _thr.Thread(target=_uret, daemon=True).start()
 
     def _hata(self, mesaj: str):
         self._mesaj_ekle(3, mesaj)
@@ -2392,18 +2893,28 @@ class AnaPencere(QMainWindow):
             self._uyari_bant.hide()
 
     def _hb_guncelle(self, mod_id: int, arm: bool):
+        self._arm_durumu = arm
+        self._log_satiri["mod_id"] = mod_id
         self._mod_lbl.setText(f"MOD: {UÇUŞ_MODLARI.get(mod_id, f'MOD-{mod_id}')}")
         _b = "border-radius:3px; padding:2px 8px; font-size:10px;"
+        _onceki_arm = getattr(self, "_onceki_arm_durumu", False)
         if arm:
             self._arm_lbl.setText("● ARMED")
             self._arm_lbl.setStyleSheet(
                 f"color:#f44336; background:#2a0a0a; border:1px solid #6a1a1a; font-weight:bold; {_b}"
             )
+            self._ucus_yapildi = True   # Bu bağlantıda en az bir kez ARM oldu
         else:
             self._arm_lbl.setText("DISARM")
             self._arm_lbl.setStyleSheet(
                 f"color:#666; background:#111; border:1px solid #2a2a2a; {_b}"
             )
+            # ARMED → DISARM geçişi: drone indi, otomatik rapor üret
+            if _onceki_arm and getattr(self, "_ucus_yapildi", False):
+                self._ucus_yapildi = False   # Bir sonraki ARM için sıfırla
+                self._mesaj_ekle(4, "✅ İniş algılandı — uçuş raporu 5 sn içinde hazırlanıyor…")
+                QTimer.singleShot(5000, self._inis_sonrasi_rapor)
+        self._onceki_arm_durumu = arm
         # RTL modu yeni başladıysa izleyiciyi başlat
         if mod_id == 6 and self._son_mod_id != 6:
             self._rtl_izleyici.baslat(self._guncel_eve_uzaklik)
@@ -2421,14 +2932,20 @@ class AnaPencere(QMainWindow):
         if hasattr(self, '_bat_volt_tile_lbl') and self._bat_volt_tile_lbl:
             self._bat_volt_tile_lbl.setText(f"{volt:.2f}")
         self._batarya_bar.guncelle(volt, amper, yuzde)
+        # Hücre bilgisi varsa ekle
+        _hucre_str = ""
+        if self._min_hucre_volt > 0:
+            _hucre_str = f"  |  min hücre: {self._min_hucre_volt:.3f}V"
         if volt > 0 and amper > 0.5 and yuzde > 0:
             sure_dk = (volt * yuzde / 100.0) / amper * 60
             self._batarya_detay.setText(
-                f"{volt:.2f}V  {amper:.2f}A  Tahmini süre: {sure_dk:.0f} dk"
+                f"{volt:.2f}V  {amper:.2f}A  Tahmini süre: {sure_dk:.0f} dk{_hucre_str}"
             )
         else:
             yuzde_str = f"{yuzde}%" if yuzde >= 0 else "?%"
-            self._batarya_detay.setText(f"{volt:.2f}V  {amper:.2f}A  {yuzde_str}  Tahmini süre: --")
+            self._batarya_detay.setText(
+                f"{volt:.2f}V  {amper:.2f}A  {yuzde_str}  Tahmini süre: --{_hucre_str}"
+            )
         self._log_satiri.update({"bat_volt": volt, "bat_amper": amper, "bat_yuzde": yuzde})
         # Sesli batarya uyarısı (her seviye bir kez)
         if yuzde > 0:
@@ -2490,26 +3007,29 @@ class AnaPencere(QMainWindow):
                 self._wp_home_lbl.setText(f"Ev: {lat:.5f}, {lon:.5f}")
 
         # İlk 3D fix'te terrain hazırlığı — fence/önceki alan sınırına göre akıllı karar
+        # _alan_karar_yukleniyor: başlangıçtaki arka plan NPZ okuması hâlâ sürüyorsa
+        # burada YENİ bir indirme/yazma başlatma — aynı dosyada okuma/yazma çakışır
+        # (AlanHazirlikThread aynı alan_verisi.npz'ye yazıyor). Okuma bitince bir
+        # sonraki GPS güncellemesinde bu blok normal akışıyla tekrar denenir.
         if (fix >= 3
                 and not self._alan_hazirlik_yapildi
+                and not self._alan_karar_yukleniyor
                 and self._alan_karar is None
                 and lat != 0.0):
             self._alan_hazirlik_yapildi = True
             if self._alan_bounds:
                 lat_min, lat_max, lon_min, lon_max = self._alan_bounds
                 if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-                    # GPS mevcut terrain alanı içinde — NPZ'yi yeniden yüklemeyi dene
+                    # GPS mevcut terrain alanı içinde — NPZ'yi arka planda yeniden yükle
                     _npz = os.path.join(os.path.dirname(__file__), "alan_verisi.npz")
                     if not os.path.isfile(_npz):
                         _npz = "alan_verisi.npz"
                     if os.path.isfile(_npz):
-                        try:
-                            from alan_inis_karar import AlanInisKarar
-                            self._alan_karar = AlanInisKarar(_npz)
-                            self._mesaj_ekle(4, "✓ Mevcut terrain verisi yüklendi — "
-                                               "gerçek zamanlı iniş kontrolü aktif.")
-                        except Exception as _re:
-                            self._mesaj_ekle(3, f"Terrain yeniden yükleme hatası: {_re}")
+                        self._alan_karar_yukleniyor = True
+                        import threading as _threading_gps
+                        _threading_gps.Thread(
+                            target=self._alan_karar_arka_planda_yukle, args=(_npz,), daemon=True
+                        ).start()
                 else:
                     # GPS bilinen terrain dışında — yeni GPS alanı için indir
                     self._mesaj_ekle(6,
@@ -2652,6 +3172,35 @@ class AnaPencere(QMainWindow):
         self._js("durumGoster('⏳ Terrain indiriliyor… (2-5 dk sürebilir, lütfen bekleyin)');")
 
 
+    def _alan_karar_arka_planda_yukle(self, npz_yolu: str):
+        """
+        Başlangıçta bulunan alan_verisi.npz için np.load + AlanInisKarar.
+        Worker thread'de çalışır — Qt nesnelerine sadece QTimer.singleShot(0, ...)
+        üzerinden, main thread'e dönerek dokunulur.
+        """
+        try:
+            import numpy as _np_bg
+            from alan_inis_karar import AlanInisKarar
+            _data = _np_bg.load(npz_yolu)
+            bounds = None
+            if "bounds" in _data:
+                _b = _data["bounds"]   # [lon_min, lat_min, lon_max, lat_max]
+                bounds = (float(_b[1]), float(_b[3]), float(_b[0]), float(_b[2]))
+            karar = AlanInisKarar(npz_yolu)
+
+            def _uygula():
+                self._alan_bounds = bounds
+                self._alan_karar = karar
+                self._alan_karar_yukleniyor = False
+                self._mesaj_ekle(6, f"Alan veri dosyası yüklendi: {os.path.basename(npz_yolu)}")
+            QTimer.singleShot(0, _uygula)
+        except Exception as _e:
+            _hata_msg = f"Alan verisi yüklenemedi: {_e}"
+            def _hata_uygula():
+                self._alan_karar_yukleniyor = False
+                self._mesaj_ekle(3, _hata_msg)
+            QTimer.singleShot(0, _hata_uygula)
+
     def _alan_hazirlik_tamamlandi(self, npz_yolu: str):
         """AlanHazirlikThread tamamlandığında AlanInisKarar'ı yükler ve haritada gösterir."""
         try:
@@ -2738,7 +3287,8 @@ class AnaPencere(QMainWindow):
         self._log_satiri.update({"ruzgar_ms": hiz, "ruzgar_yon": yon})
 
         # ── 2. EMA filtresi ────────────────────────────────────────────────────
-        self._ruz_ema = 0.25 * hiz + 0.75 * self._ruz_ema
+        α = self._ruz_ema_alpha
+        self._ruz_ema = α * hiz + (1.0 - α) * self._ruz_ema
         hiz_f = self._ruz_ema   # filtrelenmiş irtifa rüzgarı (m/s)
 
         # ── 3. Hellmann Güç Yasası: irtifa → zemin ────────────────────────────
@@ -2757,8 +3307,9 @@ class AnaPencere(QMainWindow):
         })
 
         # ── 6. UI: zemin etiketi ───────────────────────────────────────────────
-        trend_ok = ("↑" if self._ruz_trend_ms_per_s >  0.03 else
-                    "↓" if self._ruz_trend_ms_per_s < -0.03 else "→")
+        _te = self._ruz_trend_esik
+        trend_ok = ("↑" if self._ruz_trend_ms_per_s >  _te else
+                    "↓" if self._ruz_trend_ms_per_s < -_te else "→")
         self._ruzgar_zemin_lbl.setText(
             f"Zemin: {self._ruz_zemin_ms * 3.6:.0f} km/h {trend_ok}"
         )
@@ -2768,6 +3319,17 @@ class AnaPencere(QMainWindow):
 
         # ── 8. Bekleme önerisi ─────────────────────────────────────────────────
         self._bekleme_onerisi_guncelle(hiz_f)
+
+        # ── 8b. Sürekli yüksek rüzgar irtifa yönetimi ─────────────────────────
+        # Gust dedektörü anlık spike'ları yakalar; bu blok EMA'nın kendisi
+        # dikkat eşiğinin üstünde kaldığı durumu yönetir.
+        self._surekli_ruzgar_irtifa_kontrol(hiz_f, _time.monotonic())
+
+        # ── 8c. Trend bazlı önleyici irtifa düşürme ────────────────────────────
+        self._trend_irtifa_kontrol(hiz_f, _time.monotonic())
+
+        # ── 8d. Hız kısıtlaması ────────────────────────────────────────────────
+        self._ruzgar_hiz_kontrol(hiz_f)
 
         # ── 9. Eşik kontrolleri — zemin tahmini kullanılır ────────────────────
         z = self._ruz_zemin_ms   # zemin rüzgarı (m/s)
@@ -2799,12 +3361,15 @@ class AnaPencere(QMainWindow):
         if not hasattr(self, '_ruz_hiz_lbl') or self._ruz_hiz_lbl is None:
             return
         hiz_kmh = hiz_ms * 3.6
-        # Renk + seviye metni
-        if hiz_kmh < 20:
+        # Renk eşikleri config'den türetilir (m/s → km/h)
+        _dik_kmh = float(_cfg.al("ruzgar.dikkat_ms",    5.5)) * 3.6   # ~19.8 km/h
+        _teh_kmh = self._ruz_tehlikeli_ms * 3.6                        # ~40 km/h
+        _krt_kmh = self._ruz_kritik_ms    * 3.6                        # ~60 km/h
+        if hiz_kmh < _dik_kmh:
             renk, seviye = "#4caf50", "NORMAL"
-        elif hiz_kmh < 40:
+        elif hiz_kmh < _teh_kmh:
             renk, seviye = "#ffc107", "DİKKAT"
-        elif hiz_kmh < 60:
+        elif hiz_kmh < _krt_kmh:
             renk, seviye = "#ff9800", "TEHLİKELİ"
         else:
             renk, seviye = "#f44336", "KRİTİK"
@@ -2877,14 +3442,30 @@ class AnaPencere(QMainWindow):
                 self._gust_alarm_verildi = True
                 # ── İrtifa tavsiyesi: hangi yükseklikte rüzgar kabul edilebilir? ──
                 irtifa_tavsiye = self._guvenli_irtifa_hesapla(hiz_ham)
+                guncel_irtifa  = getattr(self, "_guncel_irtifa", 0.0)
                 if irtifa_tavsiye is not None:
-                    guncel_irtifa = getattr(self, "_guncel_irtifa", 0.0)
+                    # Mesajı her zaman yaz
                     self._mesaj_ekle(3,
                         f"⚡ Sürekli gust {sure:.0f} sn: {hiz_ham*3.6:.0f} km/h "
                         f"(EMA: {hiz_f*3.6:.0f} km/h) — motorlar zorlanıyor. "
-                        f"{guncel_irtifa:.0f}m'den {irtifa_tavsiye:.0f}m'ye alçal: "
-                        f"rüzgar ~{self._ruz_tehlikeli_ms*3.6:.0f} km/h eşiğine düşer."
+                        f"{guncel_irtifa:.0f}m → {irtifa_tavsiye:.0f}m'ye alçalınıyor "
+                        f"(Hellmann: rüzgar ~{self._ruz_tehlikeli_ms*3.6:.0f} km/h'e düşer)."
                     )
+                    # Otonom irtifa düşürme:
+                    # Sadece armed + havada (>8m) + GUIDED/AUTO/RTL modunda
+                    # ve daha önce gust için irtifa ayarlanmadıysa
+                    _irtifa_modu = self._son_mod_id in (3, 4, 6)  # AUTO/GUIDED/RTL
+                    if (self._arm_durumu
+                            and guncel_irtifa > 8.0
+                            and _irtifa_modu
+                            and not self._ruz_irtifa_ayarli):
+                        self._ruz_irtifa_ayarli = True
+                        self._ruz_irtifa_onceki = guncel_irtifa
+                        self._mavlink.irtifa_degistir(irtifa_tavsiye)
+                        self._mesaj_ekle(2,
+                            f"⬇ OTOMATİK: irtifa {guncel_irtifa:.0f}m → {irtifa_tavsiye:.0f}m "
+                            f"(gust koruması aktif).")
+                        self._js(f"durumGoster('⬇ Gust: irtifa {guncel_irtifa:.0f}m → {irtifa_tavsiye:.0f}m');")
                 else:
                     self._mesaj_ekle(3,
                         f"⚡ Sürekli gust {sure:.0f} sn: {hiz_ham*3.6:.0f} km/h "
@@ -2895,6 +3476,14 @@ class AnaPencere(QMainWindow):
             if hiz_ham < hiz_f:
                 self._gust_baslangic_t = None
                 self._gust_alarm_verildi = False
+                # Gust için düşürülen irtifayı geri al
+                if self._ruz_irtifa_ayarli:
+                    self._ruz_irtifa_ayarli = False
+                    onceki = self._ruz_irtifa_onceki
+                    self._mavlink.irtifa_degistir(onceki)
+                    self._mesaj_ekle(6,
+                        f"⬆ Gust geçti: irtifa {onceki:.0f}m'ye geri alınıyor.")
+                    self._js(f"durumGoster('⬆ Gust bitti: irtifa {onceki:.0f}m');")
 
     def _guvenli_irtifa_hesapla(self, hiz_ham: float) -> "float | None":
         """
@@ -2960,6 +3549,121 @@ class AnaPencere(QMainWindow):
                 )
                 self._bekleme_son_mesaj_t = _simdi
 
+    # ── Rüzgar irtifa / hız yönetimi yardımcıları ────────────────────────────
+
+    def _ruz_irtifa_uygun_mu(self) -> bool:
+        """Otonom irtifa/hız değişikliği için ortak ön koşulları kontrol eder."""
+        return (self._arm_durumu
+                and getattr(self, "_guncel_irtifa", 0.0) > 8.0
+                and self._son_mod_id in (3, 4, 6))   # AUTO / GUIDED / RTL
+
+    def _surekli_ruzgar_irtifa_kontrol(self, hiz_f: float, simdi: float):
+        """
+        EMA'nın kendisi dikkat eşiğini aşıp aşmadığını 30 sn'de bir kontrol eder.
+        Gust değil, sürekli yüksek rüzgar durumu: irtifayı Hellmann hedefine indir.
+        Rüzgar yatıştığında eski irtifaya geri çık.
+        """
+        _dikkat = float(_cfg.al("ruzgar.dikkat_ms", 5.5))
+
+        # Sürekli yüksek → irtifa düşür
+        if (hiz_f >= _dikkat
+                and not self._ruz_surekli_ayarli
+                and not self._ruz_irtifa_ayarli):  # gust zaten ayarladıysa dokunma
+            if simdi - self._ruz_surekli_son_t < 30.0:
+                return   # 30 sn bekle — tek seferlik değişikliğe yakınsın
+            self._ruz_surekli_son_t = simdi
+            irtifa_tavsiye = self._guvenli_irtifa_hesapla(hiz_f)
+            if irtifa_tavsiye is None:
+                return
+            if not self._ruz_irtifa_uygun_mu():
+                return
+            guncel = self._guncel_irtifa
+            self._ruz_surekli_ayarli     = True
+            self._ruz_surekli_irt_onceki = guncel
+            self._mavlink.irtifa_degistir(irtifa_tavsiye)
+            self._mesaj_ekle(3,
+                f"🌬 Sürekli yüksek rüzgar (EMA {hiz_f*3.6:.0f} km/h) — "
+                f"irtifa {guncel:.0f}m → {irtifa_tavsiye:.0f}m (Hellmann koruma).")
+            self._js(f"durumGoster('🌬 Rüzgar: irtifa {guncel:.0f}m → {irtifa_tavsiye:.0f}m');")
+
+        # Rüzgar yatıştı → geri çık
+        elif hiz_f < _dikkat * 0.80 and self._ruz_surekli_ayarli:
+            self._ruz_surekli_ayarli = False
+            onceki = self._ruz_surekli_irt_onceki
+            if self._ruz_irtifa_uygun_mu() and onceki > 0:
+                self._mavlink.irtifa_degistir(onceki)
+                self._mesaj_ekle(6,
+                    f"⬆ Rüzgar normale döndü ({hiz_f*3.6:.0f} km/h): "
+                    f"irtifa {onceki:.0f}m'ye geri alınıyor.")
+                self._js(f"durumGoster('⬆ Rüzgar normale döndü: irtifa {onceki:.0f}m');")
+
+    def _trend_irtifa_kontrol(self, hiz_f: float, simdi: float):
+        """
+        Trend hızla artıyorsa (>0.08 m/s²) ve tehlikeli eşiğe 90 sn içinde
+        ulaşılacaksa, eşiğe çarpmadan ÖNCE irtifayı düşür.
+        """
+        trend     = self._ruz_trend_ms_per_s
+        tehlikeli = self._ruz_tehlikeli_ms
+
+        if self._ruz_trend_irtifa_verildi:
+            # Trend tersine döndüyse bayrağı sıfırla
+            if trend < 0.03:
+                self._ruz_trend_irtifa_verildi = False
+            return
+
+        if trend < 0.08:
+            return   # Yavaş artış — müdahale gerekmez
+
+        # Tehlikeli eşiğe ulaşma süresi
+        kalan_sure = (tehlikeli - hiz_f) / trend if trend > 0 else 9999
+        if kalan_sure > 90 or kalan_sure <= 0:
+            return   # Yeterli süre var veya zaten aşıldı
+
+        irtifa_tavsiye = self._guvenli_irtifa_hesapla(tehlikeli * 1.05)  # biraz üstü için hesapla
+        if irtifa_tavsiye is None or not self._ruz_irtifa_uygun_mu():
+            return
+        if self._ruz_irtifa_ayarli or self._ruz_surekli_ayarli:
+            return   # Başka bir koruma zaten aktif
+
+        self._ruz_trend_irtifa_verildi = True
+        guncel = self._guncel_irtifa
+        self._ruz_surekli_ayarli     = True
+        self._ruz_surekli_irt_onceki = guncel
+        self._mavlink.irtifa_degistir(irtifa_tavsiye)
+        self._mesaj_ekle(3,
+            f"📈 Rüzgar artıyor — {kalan_sure:.0f} sn içinde tehlikeli eşiğe ulaşacak! "
+            f"Önleyici: irtifa {guncel:.0f}m → {irtifa_tavsiye:.0f}m.")
+        self._js(f"durumGoster('📈 Rüzgar artış trendi: irtifa {guncel:.0f}m → {irtifa_tavsiye:.0f}m');")
+
+    def _ruzgar_hiz_kontrol(self, hiz_f: float):
+        """
+        Rüzgar dikkat eşiğini aştığında uçuş hızını kısıtlar (MAV_CMD_DO_CHANGE_SPEED).
+        Normale dönünce config'deki normal_cms değerine geri alır.
+        """
+        _dikkat   = float(_cfg.al("ruzgar.dikkat_ms", 5.5))
+        _normal_ms = float(_cfg.al("hiz_kisitlama.normal_cms", 1000)) / 100.0   # cm/s → m/s
+
+        if hiz_f >= _dikkat and not self._ruz_hiz_kisitlandi:
+            if not self._ruz_irtifa_uygun_mu():
+                return
+            # Hızı rüzgar hızıyla ters orantılı kısıtla: rüzgar arttıkça hız düşer
+            # Formül: v_hedef = normal × (dikkat / hiz_f) — ama en az 2 m/s
+            v_hedef = max(_normal_ms * (_dikkat / hiz_f), 2.0)
+            v_hedef = round(v_hedef, 1)
+            self._ruz_hiz_kisitlandi = True
+            self._ruz_hiz_onceki     = _normal_ms
+            self._mavlink.hiz_kisitla(v_hedef)
+            self._mesaj_ekle(5,
+                f"🐢 Rüzgar nedeniyle hız kısıtlandı: {_normal_ms:.0f} → {v_hedef:.0f} m/s.")
+
+        elif hiz_f < _dikkat * 0.80 and self._ruz_hiz_kisitlandi:
+            self._ruz_hiz_kisitlandi = False
+            onceki = self._ruz_hiz_onceki
+            if onceki > 0 and self._ruz_irtifa_uygun_mu():
+                self._mavlink.hiz_kisitla(onceki)
+                self._mesaj_ekle(6,
+                    f"🐇 Rüzgar azaldı: hız kısıtlaması kaldırıldı ({onceki:.0f} m/s).")
+
     def _lidar_guncelle(self, mesafe_m: float):
         """DISTANCE_SENSOR mesajından gelen yüksekliği saklar."""
         self._guncel_lidar_m = mesafe_m
@@ -3012,8 +3716,12 @@ class AnaPencere(QMainWindow):
     def _ekf_guncelle(self, bayraklar: int, hata: float):
         self._guncel_ekf_hata = hata
         self._ekf_bayraklar   = bayraklar
-        # Bit 0 (tutum) + Bit 1 (yatay hız) her ikisi de set ise rüzgar tahmini güvenilir
-        self._ekf_ruzgar_gecerli = bool(bayraklar & 0x0001) and bool(bayraklar & 0x0002)
+        # Bit 0 (tutum) + Bit 1 (yatay hız) + Bit 2 (dikey hız) — üçü kilitli ise güvenilir
+        self._ekf_ruzgar_gecerli = (
+            bool(bayraklar & 0x0001) and   # tutum kilidi
+            bool(bayraklar & 0x0002) and   # yatay hız kilidi
+            bool(bayraklar & 0x0004)       # dikey hız kilidi (yüksek irtifada kritik)
+        )
         _b = "border-radius:3px; padding:2px 8px; font-size:10px;"
         if bayraklar & 0x01F:
             self._ekf_lbl.setText(f"EKF: OK ({hata:.2f})")
@@ -3198,6 +3906,74 @@ class AnaPencere(QMainWindow):
         self._js(f"evNoktasiGuncelle({self._guncel_lat}, {self._guncel_lon});")
         self._mesaj_ekle(6, f"Ev noktası güncellendi: {self._guncel_lat:.5f}, {self._guncel_lon:.5f}")
 
+    def _kalibrasyon_tikla(self):
+        """MAV_CMD_PREFLIGHT_CALIBRATION (241) — gyro/manyetometre/ivmeölçer kalibrasyonu."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("🔧 Kalibrasyon Seçimi")
+        dlg.setMinimumWidth(280)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(__import__('PyQt5.QtWidgets', fromlist=['QLabel']).QLabel(
+            "<b>Kalibrasyon tiplerini seçin:</b><br>"
+            "<small>(Drone yerde, motorlar kapalı olmalı)</small>"
+        ))
+        gyro_cb  = QCheckBox("Gyro kalibrasyonu    (param1=1)")
+        mag_cb   = QCheckBox("Manyetometre         (param2=1)")
+        accel_cb = QCheckBox("İvmeölçer            (param5=1)")
+        baro_cb  = QCheckBox("Barometri sıfırlama  (param3=1)")
+        gyro_cb.setChecked(True)
+        for cb in (gyro_cb, mag_cb, accel_cb, baro_cb):
+            lay.addWidget(cb)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        p1 = 1 if gyro_cb.isChecked()  else 0
+        p2 = 1 if mag_cb.isChecked()   else 0
+        p3 = 1 if baro_cb.isChecked()  else 0
+        p5 = 1 if accel_cb.isChecked() else 0
+        if not any([p1, p2, p3, p5]):
+            self._mesaj_ekle(3, "Kalibrasyon: hiçbir tip seçilmedi.")
+            return
+        # MAV_CMD_PREFLIGHT_CALIBRATION = 241
+        # p1=gyro, p2=mag, p3=pressure, p4=rc, p5=accel, p6=compmot, p7=airspeed
+        self._mavlink.komut_gonder(241, p1, p2, p3, 0, p5, 0, 0)
+        tipler = []
+        if p1: tipler.append("Gyro")
+        if p2: tipler.append("Manyetometre")
+        if p3: tipler.append("Barometri")
+        if p5: tipler.append("İvmeölçer")
+        self._mesaj_ekle(4, f"🔧 Kalibrasyon başlatıldı: {', '.join(tipler)} — STATUSTEXT mesajlarını takip edin.")
+
+    def _parasut_tikla(self):
+        """DO_PARACHUTE (208) — paraşütü tetikler. Onay gerektirir."""
+        cevap = QMessageBox.question(
+            self, "⚠ PARAŞÜT ONAYI",
+            "Paraşüt fırlatılacak!\n\nDrone düşecek ve kurtarılamayabilir.\n\nEmin misiniz?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if cevap == QMessageBox.Yes:
+            # MAV_CMD_DO_PARACHUTE = 208, param1=2 (fırlat/tetikle)
+            self._mavlink.komut_gonder(208, 2)
+            self._mesaj_ekle(2, "🪂 PARAŞÜT TETİKLENDİ — MAV_CMD_DO_PARACHUTE gönderildi.")
+            self._sesli_uyan("Paraşüt tetiklendi")
+
+    def _wp_git_tikla(self):
+        """Seçili WP satırına MISSION_SET_CURRENT komutu gönderir."""
+        if not hasattr(self, '_wp_tablo'):
+            return
+        satirlar = self._wp_tablo.selectionModel().selectedRows()
+        if not satirlar:
+            self._mesaj_ekle(3, "Önce tabloda bir waypoint satırı seç.")
+            return
+        seq = satirlar[0].row() + 1   # seq 1-tabanlı (0 = ev noktası)
+        self._mavlink.mission_wp_atla(seq)
+        self._mesaj_ekle(6, f"WP {seq} aktif yapılıyor (MISSION_SET_CURRENT)…")
+        self._sesli_uyan(f"Waypoint {seq} seçildi")
+
     def _param_indir_tikla(self):
         if not self._bagli:
             QMessageBox.warning(self, "Bağlantı Yok", "Önce SITL/drone'a bağlanın.")
@@ -3308,22 +4084,115 @@ class AnaPencere(QMainWindow):
 
         self._mesaj_ekle(4, f"✓ {gonderilen} parametre gönderildi (yeniden başlatma gerekebilir).")
 
+    def _param_karsilastir_tikla(self):
+        """Mevcut param_cache ile bir JSON yedek dosyasını karşılaştırır, farkları listeler."""
+        if not self._param_cache:
+            QMessageBox.warning(self, "Parametre Yok",
+                "Önce 'Parametreleri İndir' ile parametreleri indirin.")
+            return
+
+        dosya, _ = QFileDialog.getOpenFileName(
+            self, "Karşılaştırılacak Parametre Yedeği", "",
+            "JSON Dosyası (*.json);;Tüm Dosyalar (*)"
+        )
+        if not dosya:
+            return
+
+        import json as _json
+        try:
+            with open(dosya, encoding="utf-8") as f:
+                veri = _json.load(f)
+        except Exception as e:
+            QMessageBox.critical(self, "Okuma Hatası", str(e))
+            return
+
+        yedek: dict = veri.get("parametreler", veri)
+        # Karşılaştırma
+        farklar = []
+        for ad, yedek_val in yedek.items():
+            if ad in self._param_cache:
+                guncel_val = self._param_cache[ad]
+                try:
+                    if abs(float(guncel_val) - float(yedek_val)) > 1e-6:
+                        farklar.append((ad, float(yedek_val), float(guncel_val)))
+                except (TypeError, ValueError):
+                    pass
+        sadece_yedekte = [ad for ad in yedek if ad not in self._param_cache]
+        sadece_guncelde = [ad for ad in self._param_cache if ad not in yedek]
+
+        # Sonuç dialogu
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Parametre Karşılaştırması — {os.path.basename(dosya)}")
+        dlg.resize(700, 500)
+        lay = QVBoxLayout(dlg)
+        txt = QTextEdit()
+        txt.setReadOnly(True)
+        txt.setFont(QFont("Courier New", 9))
+
+        satirlar = []
+        satirlar.append(f"=== Parametre Karşılaştırması ===")
+        satirlar.append(f"Yedek: {os.path.basename(dosya)}")
+        satirlar.append(f"Farklı değer: {len(farklar)} | Sadece yedekte: {len(sadece_yedekte)} | Sadece mevcut: {len(sadece_guncelde)}")
+        satirlar.append("")
+
+        if farklar:
+            satirlar.append("── FARKLI DEĞERLER ──────────────────────────────────")
+            satirlar.append(f"{'Parametre':<35} {'Yedek':>12} {'Mevcut':>12}")
+            satirlar.append("-" * 62)
+            for ad, yv, gv in sorted(farklar):
+                satirlar.append(f"{ad:<35} {yv:>12.4f} {gv:>12.4f}")
+
+        if sadece_yedekte:
+            satirlar.append("")
+            satirlar.append(f"── SADECE YEDEKTE ({len(sadece_yedekte)}) ────────────────────")
+            for ad in sorted(sadece_yedekte)[:30]:
+                satirlar.append(f"  {ad}")
+            if len(sadece_yedekte) > 30:
+                satirlar.append(f"  ... ve {len(sadece_yedekte)-30} tane daha")
+
+        if sadece_guncelde:
+            satirlar.append("")
+            satirlar.append(f"── SADECE MEVCUT DRONE'DA ({len(sadece_guncelde)}) ───────────────")
+            for ad in sorted(sadece_guncelde)[:30]:
+                satirlar.append(f"  {ad}")
+            if len(sadece_guncelde) > 30:
+                satirlar.append(f"  ... ve {len(sadece_guncelde)-30} tane daha")
+
+        if not farklar and not sadece_yedekte and not sadece_guncelde:
+            satirlar.append("✓ Parametreler birebir aynı!")
+
+        txt.setPlainText("\n".join(satirlar))
+        lay.addWidget(txt)
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        dlg.exec_()
+        self._mesaj_ekle(6, f"Karşılaştırma: {len(farklar)} fark, {len(sadece_yedekte)} eksik, {len(sadece_guncelde)} fazla.")
+
     def _harita_yol_temizle(self):
         self._js("ucusYolunuTemizle();")
 
     # ── Waypoint Görev Planlama ───────────────────────────────────────────────
 
     _WP_KOMUTLAR = ["NAV_WAYPOINT", "TAKEOFF", "LAND", "LOITER_TURNS",
-                    "LOITER_TIME", "LOITER_UNLIMITED", "RTL", "DELAY"]
+                    "LOITER_TIME", "LOITER_UNLIMITED", "RTL", "DELAY",
+                    "DO_LAND_START", "DO_JUMP", "DO_CHANGE_SPEED",
+                    "DO_DIGICAM_CONTROL", "DO_SET_CAM_TRIGG_DIST"]
     _WP_KOMUT_KODLARI = {
-        "NAV_WAYPOINT":       16,
-        "TAKEOFF":            22,
-        "LAND":               21,
-        "LOITER_TURNS":       18,
-        "LOITER_TIME":        19,
-        "LOITER_UNLIMITED":   17,
-        "RTL":                20,
-        "DELAY":              93,
+        "NAV_WAYPOINT":          16,
+        "TAKEOFF":               22,
+        "LAND":                  21,
+        "LOITER_TURNS":          18,
+        "LOITER_TIME":           19,
+        "LOITER_UNLIMITED":      17,
+        "RTL":                   20,
+        "DELAY":                 93,
+        "DO_LAND_START":        189,   # RTL/failsafe burada başlayan iniş yaklaşmasına atlar
+        "DO_JUMP":              177,   # P1=hedef WP seq, P2=tekrar sayısı (-1=sonsuz)
+        "DO_CHANGE_SPEED":      178,   # P1=hız tipi (0=hava,1=zemin), P2=hız (m/s)
+        "DO_DIGICAM_CONTROL":   203,   # P1=oturum (1=aç), P5=fotoğraf çek (1)
+        "DO_SET_CAM_TRIGG_DIST":206,   # P1=tetikleme mesafesi (m), 0=durdur
     }
 
     def _wp_tablo_yenile(self):
@@ -3360,43 +4229,79 @@ class AnaPencere(QMainWindow):
             no.setFlags(no.flags() & ~Qt.ItemIsEditable)
             no.setTextAlignment(Qt.AlignCenter)
 
-            # Sütun 2,3 — lat/lon (salt okunur)
+            # Sütun 2,3,4 — P1/P2/P3 parametreleri (düzenlenebilir)
+            # Yeni sütun dizini: #=0, Komut=1, P1=2, P2=3, P3=4, Enlem=5, Boylam=6, İrtifa=7, Mesafe=8, AZ=9, btn=10
+            komut_adi = wp.get("komut", "NAV_WAYPOINT")
+            _p_ipucu = {
+                # {komut: (p1, p2, p3)}
+                "NAV_WAYPOINT":         ("Kabul yarıçapı (m)", "Geçiş (sn)", "—"),
+                "TAKEOFF":              ("Min pitch (°)", "—", "—"),
+                "LAND":                 ("Abort irtifa (m)", "—", "—"),
+                "LOITER_TURNS":         ("Tur sayısı", "Yarıçap (m, 0=wp)", "—"),
+                "LOITER_TIME":          ("Bekleme (sn)", "Yarıçap (m)", "—"),
+                "LOITER_UNLIMITED":     ("Yarıçap (m)", "—", "—"),
+                "DELAY":                ("Gecikme (sn)", "—", "—"),
+                "DO_LAND_START":        ("—", "—", "—"),
+                "DO_JUMP":              ("Hedef WP no", "Tekrar sayısı", "—"),
+                "DO_CHANGE_SPEED":      ("Hız tipi (0=hava,1=yer)", "Hız (m/s)", "İvme (m/s²,-1=yok)"),
+                "DO_DIGICAM_CONTROL":   ("Oturum (1=aç)", "—", "—"),
+                "DO_SET_CAM_TRIGG_DIST":("Tetik mes. (m)", "—", "—"),
+            }
+            p1_val = wp.get("p1", 0)
+            p2_val = wp.get("p2", 0)
+            p3_val = wp.get("p3", 0)
+            ipucu = _p_ipucu.get(komut_adi, ("Parametre 1", "Parametre 2", "Parametre 3"))
+
+            def _pitem(val, tip_str):
+                _it = QTableWidgetItem(str(int(val)) if val == int(val) else f"{val:.1f}")
+                _it.setToolTip(tip_str)
+                _it.setTextAlignment(Qt.AlignCenter)
+                return _it
+
+            p1_item = _pitem(p1_val, ipucu[0])
+            p2_item = _pitem(p2_val, ipucu[1])
+            p3_item = _pitem(p3_val, ipucu[2])
+
+            # Sütun 5,6 — lat/lon (salt okunur)
             lat = QTableWidgetItem(f"{wp['lat']:.6f}")
             lat.setFlags(lat.flags() & ~Qt.ItemIsEditable)
             lon = QTableWidgetItem(f"{wp['lon']:.6f}")
             lon.setFlags(lon.flags() & ~Qt.ItemIsEditable)
 
-            # Sütun 4 — irtifa (düzenlenebilir)
+            # Sütun 7 — irtifa (düzenlenebilir)
             alt = QTableWidgetItem(str(int(wp.get('alt', 50))))
 
-            # Sütun 5 — mesafe (salt okunur)
+            # Sütun 8 — mesafe (salt okunur)
             mes_str = f"{mesafeler[i]:.0f}" if i > 0 else "—"
             mes_item = QTableWidgetItem(mes_str)
             mes_item.setFlags(mes_item.flags() & ~Qt.ItemIsEditable)
             mes_item.setTextAlignment(Qt.AlignCenter)
 
-            # Sütun 6 — azimut (salt okunur)
+            # Sütun 9 — azimut (salt okunur)
             az_str = f"{azimutlar[i]:.0f}" if i > 0 else "—"
             az_item = QTableWidgetItem(az_str)
             az_item.setFlags(az_item.flags() & ~Qt.ItemIsEditable)
             az_item.setTextAlignment(Qt.AlignCenter)
 
             self._wp_tablo.setItem(i, 0, no)
-            self._wp_tablo.setItem(i, 2, lat)
-            self._wp_tablo.setItem(i, 3, lon)
-            self._wp_tablo.setItem(i, 4, alt)
-            self._wp_tablo.setItem(i, 5, mes_item)
-            self._wp_tablo.setItem(i, 6, az_item)
+            self._wp_tablo.setItem(i, 2, p1_item)
+            self._wp_tablo.setItem(i, 3, p2_item)
+            self._wp_tablo.setItem(i, 4, p3_item)
+            self._wp_tablo.setItem(i, 5, lat)
+            self._wp_tablo.setItem(i, 6, lon)
+            self._wp_tablo.setItem(i, 7, alt)
+            self._wp_tablo.setItem(i, 8, mes_item)
+            self._wp_tablo.setItem(i, 9, az_item)
 
             # Sütun 1 — komut tipi (QComboBox)
             combo = QComboBox()
             combo.addItems(self._WP_KOMUTLAR)
-            combo.setCurrentText(wp.get("komut", "NAV_WAYPOINT"))
+            combo.setCurrentText(komut_adi)
             combo.setStyleSheet("background:#1a2a3a; color:#ddd; font-size:11px;")
             combo.currentTextChanged.connect(lambda t, idx=i: self._wp_komut_degisti(idx, t))
             self._wp_tablo.setCellWidget(i, 1, combo)
 
-            # Sütun 7 — Yukarı / Aşağı butonları
+            # Sütun 10 — Yukarı / Aşağı butonları
             _btn_w = QWidget()
             _btn_lay = QHBoxLayout(_btn_w)
             _btn_lay.setContentsMargins(1, 1, 1, 1)
@@ -3413,22 +4318,30 @@ class AnaPencere(QMainWindow):
             _dn.clicked.connect(lambda _, idx=i: self._wp_asagi(idx))
             _btn_lay.addWidget(_up)
             _btn_lay.addWidget(_dn)
-            self._wp_tablo.setCellWidget(i, 7, _btn_w)
+            self._wp_tablo.setCellWidget(i, 10, _btn_w)
 
         self._wp_tablo.blockSignals(False)
         self._wp_profil_guncelle()
 
     def _wp_tablo_degisti(self, item):
-        """Kullanıcı tabloda irtifayı çift tıklayıp değiştirince haritayı güncelle."""
-        if item.column() != 4:   # Sütun 4 = İrtifa
-            return
+        """Kullanıcı tabloda irtifa veya P1/P2/P3 değerini değiştirince listeyi güncelle."""
+        # Sütun dizini: #=0, Komut=1, P1=2, P2=3, P3=4, Enlem=5, Boylam=6, İrtifa=7, Mesafe=8, AZ=9, btn=10
+        col = item.column()
         idx = item.row()
+        if idx >= len(self._wp_listesi):
+            return
         try:
-            alt = max(5, int(item.text()))
-            if idx < len(self._wp_listesi):
+            if col == 7:   # İrtifa
+                alt = max(5, int(item.text()))
                 self._wp_listesi[idx]['alt'] = alt
                 self._js(f"wpIrtifaGuncelle({idx}, {alt});")
                 self._wp_profil_guncelle()
+            elif col == 2:  # P1 parametresi
+                self._wp_listesi[idx]['p1'] = float(item.text())
+            elif col == 3:  # P2 parametresi
+                self._wp_listesi[idx]['p2'] = float(item.text())
+            elif col == 4:  # P3 parametresi
+                self._wp_listesi[idx]['p3'] = float(item.text())
         except (ValueError, IndexError):
             pass
 
@@ -3481,13 +4394,15 @@ class AnaPencere(QMainWindow):
                     try:
                         # Format: index current frame command p1 p2 p3 p4 lat lon alt autocont
                         cmd_id  = int(parcalar[3])
+                        p1_f    = float(parcalar[4])
                         lat_f   = float(parcalar[8])
                         lon_f   = float(parcalar[9])
                         alt_f   = float(parcalar[10])
                         # Komut kodu → isim
                         _ters = {v: k for k, v in self._WP_KOMUT_KODLARI.items()}
                         komut = _ters.get(cmd_id, "NAV_WAYPOINT")
-                        yeni.append({"lat": lat_f, "lon": lon_f, "alt": alt_f, "komut": komut})
+                        yeni.append({"lat": lat_f, "lon": lon_f, "alt": alt_f,
+                                     "komut": komut, "p1": p1_f})
                     except (ValueError, IndexError):
                         continue
             if not yeni:
@@ -3517,8 +4432,9 @@ class AnaPencere(QMainWindow):
             for i, wp in enumerate(self._wp_listesi):
                 cmd_id = self._WP_KOMUT_KODLARI.get(wp.get("komut", "NAV_WAYPOINT"), 16)
                 current = 1 if i == 0 else 0
+                p1_val  = wp.get("p1", 0)
                 satirlar.append(
-                    f"{i}\t{current}\t3\t{cmd_id}\t0\t0\t0\t0"
+                    f"{i}\t{current}\t3\t{cmd_id}\t{p1_val:.1f}\t0\t0\t0"
                     f"\t{wp['lat']:.8f}\t{wp['lon']:.8f}\t{wp.get('alt', 50):.1f}\t1"
                 )
             with open(yol, "w", encoding="utf-8") as f:
@@ -3628,6 +4544,117 @@ class AnaPencere(QMainWindow):
     def _guvenli_noktalar_temizle(self):
         self._js("guvenliNoktalariTemizle(); durumGoster('');")
 
+    # ── Yeni MAVLink mesaj handler'ları ──────────────────────────────────────
+
+    def _mission_wp_degisti(self, seq: int):
+        """MISSION_CURRENT: drone'un aktif waypoint'ini vurgula."""
+        self._aktif_wp_seq = seq
+        # WP tablosunda satırı yeşil vurgula
+        self._wp_tablo.blockSignals(True)
+        for r in range(self._wp_tablo.rowCount()):
+            aktif = (r == seq - 1)
+            renk = QColor("#1a3a1a") if aktif else QColor("#0d1b2a")
+            for c in range(self._wp_tablo.columnCount()):
+                itm = self._wp_tablo.item(r, c)
+                if itm:
+                    itm.setBackground(renk)
+        self._wp_tablo.blockSignals(False)
+        # Haritada marker vurgula
+        self._js(f"wpAktifVurgula({seq - 1});")
+
+    _MAV_RESULT_TR = {
+        0: "✓ OK", 1: "⚠ Desteklenmiyor", 2: "✗ Reddedildi",
+        3: "✗ Başarısız",  4: "⏳ Devam ediyor", 5: "✗ İptal edildi",
+    }
+
+    def _komut_onaylandi(self, komut_id: int, sonuc: int):
+        """COMMAND_ACK: komutun sonucunu logla (OK ise sessiz)."""
+        if sonuc == 0:
+            return   # başarılı — loga spam yapma
+        aciklama = self._MAV_RESULT_TR.get(sonuc, f"sonuc={sonuc}")
+        self._mesaj_ekle(2, f"Komut {komut_id}: {aciklama}")
+
+    def _rc_guncellendi(self, rssi: int, failsafe: bool):
+        """RC_CHANNELS: sinyal gücü ve failsafe durumu."""
+        if failsafe and not self._rc_failsafe_aktif:
+            self._rc_failsafe_aktif = True
+            self._mesaj_ekle(1, "⚠ RC SİNYAL KAYBI — failsafe aktif!")
+            self._sesli_uyan("R C sinyal kayıp")
+        elif not failsafe and self._rc_failsafe_aktif:
+            self._rc_failsafe_aktif = False
+            self._mesaj_ekle(4, "RC sinyali geri geldi.")
+        # Badge güncelle
+        if rssi == 255 or rssi == 0:
+            self._rc_lbl.setText("RC: —")
+            self._rc_lbl.setStyleSheet(
+                f"color:#666; background:#111; border:1px solid #2a2a2a; {_BADGE}"
+            )
+        else:
+            guc = int(rssi / 254 * 100)
+            renk = "#4caf50" if guc > 60 else "#ffc107" if guc > 25 else "#f44336"
+            self._rc_lbl.setText(f"RC {guc}%")
+            self._rc_lbl.setStyleSheet(
+                f"color:{renk}; background:#111; border:1px solid #333; {_BADGE}"
+            )
+
+    _FENCE_TUR_TR = {
+        1: "Yükseklik ihlali",
+        2: "Çevre (daire) ihlali",
+        3: "Poligon ihlali",
+        4: "Çoklu ihlal",
+    }
+
+    def _fence_ihlal_handler(self, durum: int):
+        """FENCE_STATUS: geofence ihlali bildirimi."""
+        if durum == 0:
+            if self._fence_ihlal_son != 0:
+                self._fence_ihlal_son = 0
+                self._mesaj_ekle(5, "Geofence: sınır içi — ihlal sona erdi.")
+            return
+        if durum == self._fence_ihlal_son:
+            return   # aynı ihlali tekrar loglama
+        self._fence_ihlal_son = durum
+        tur = self._FENCE_TUR_TR.get(durum, f"bilinmeyen durum={durum}")
+        self._mesaj_ekle(1, f"🚧 GEOFENCE İHLALİ: {tur}!")
+        self._sesli_uyan(f"Geofence ihlali")
+        self._js(f"durumGoster('🚧 GEOFENCE İHLALİ: {tur}!');")
+
+    def _ev_noktasi_guncelle(self, lat: float, lon: float, alt: float):
+        """HOME_POSITION: drone'un resmi ev noktasını UI'a yansıt."""
+        self._ev_lat = lat
+        self._ev_lon = lon
+        # WP özet satırındaki Ev etiketi
+        if hasattr(self, '_wp_home_lbl'):
+            self._wp_home_lbl.setText(f"Ev: {lat:.5f}, {lon:.5f}")
+        # Harita marker (evNoktasiGuncelle JS fonksiyonu zaten mevcut)
+        self._js(f"evNoktasiGuncelle({lat}, {lon});")
+        # Mini harita
+        if hasattr(self, '_mini_harita_hazir') and self._mini_harita_hazir:
+            self._mini_js(f"evNoktasiGoster({lat}, {lon});")
+        self._mesaj_ekle(6, f"Ev noktası güncellendi (HOME_POSITION): {lat:.5f}, {lon:.5f}")
+
+    def _batarya_hucre_guncelle(self, min_volt: float, hucre_sayisi: int):
+        """BATTERY_STATUS: hücre başına minimum voltaj — kritik hücre uyarısı."""
+        self._min_hucre_volt = min_volt
+        kritik = float(_cfg.al("batarya.hucre_kritik_volt", 3.3))
+        if min_volt < kritik and min_volt > 0:
+            self._mesaj_ekle(1,
+                f"⚠ KRİTİK HÜCRE: {min_volt:.3f}V "
+                f"({hucre_sayisi}S — eşik: {kritik:.2f}V)")
+
+    def _servo_doyum_guncelle(self, servo_bilgi: list):
+        """SERVO_OUTPUT_RAW: ≥1950µs doyum tespiti → uyarı (30 sn debounce)."""
+        simdi = time.monotonic()
+        for s in servo_bilgi:
+            if not s["doyum"]:
+                continue
+            k = s["kanal"]
+            son = getattr(self, f"_servo_doyum_son_{k}", 0.0)
+            if simdi - son >= 30.0:
+                setattr(self, f"_servo_doyum_son_{k}", simdi)
+                self._mesaj_ekle(3,
+                    f"⚠ Motor/Servo {k} doyum: {s['pwm']}µs — "
+                    "bu eksen tam güçte, manevra kapasitesi kalmayabilir!")
 
     def _guvenli_inis_baslat(self):
         if not self._bagli:
@@ -3650,6 +4677,7 @@ class AnaPencere(QMainWindow):
         self._terrain_thread = TerrainAnalizThread(
             self._guncel_lat, self._guncel_lon, bat,
             ruzgar_ms=ruz_ms, ruzgar_yonu_derece=ruz_yon,
+            min_hucre_volt=getattr(self, "_min_hucre_volt", 0.0),
         )
         self._terrain_thread.tamamlandi.connect(self._guvenli_inis_tamamlandi)
         self._terrain_thread.hata.connect(self._guvenli_inis_hata)
@@ -3661,6 +4689,12 @@ class AnaPencere(QMainWindow):
         if not sonuc.basarili:
             self._js(f"durumGoster({json.dumps('Hata: ' + sonuc.hata)});")
             return
+
+        if sonuc.voltaj_sapma_faktoru < 1.0:
+            self._mesaj_ekle(3,
+                f"⚠ Hücre voltajı bildirilen bataryaya göre düşük "
+                f"(min {self._min_hucre_volt:.2f}V) — uçuş yarıçapı ek güvenlik "
+                f"payıyla %{(1.0 - sonuc.voltaj_sapma_faktoru) * 100:.0f} kısıtlandı.")
 
         # Tüm güvenli + riskli noktaları JS'e gönder
         noktalar = []
@@ -3737,8 +4771,9 @@ class AnaPencere(QMainWindow):
         self._inis_hedef  = (lat, lon)
         self._inis_lidar  = {}
         self._inis_denedi = {(round(lat, 5), round(lon, 5))}
-        self._mesaj_ekle(6, f"Hedef: {lat:.5f}, {lon:.5f} — LIDAR tarama başlıyor (~14 sn)…")
+        self._mesaj_ekle(6, f"Hedef: {lat:.5f}, {lon:.5f} — LIDAR tarama başlıyor (~22 sn)…")
         self._js("durumGoster('🔍 Hedefe gidiliyor — iniş öncesi LIDAR zemin taraması…');")
+        self._js(f"lidarTaramaTemizle(); inisHedefGoster({lat}, {lon});")
         # 8 sn sonra merkez ölçüm başlat (drone varış süresi)
         QTimer.singleShot(8000, self._dogrulama_merkez_olcum)
 
@@ -3759,6 +4794,7 @@ class AnaPencere(QMainWindow):
             0, 0, 0, 0, lat, lon, 0
         )
         self._mesaj_ekle(6, "İniş komutu gönderildi.")
+        self._js("inisHedefTemizle();")
 
     def _guvenli_inis_hata(self, mesaj: str):
         self._js("document.getElementById('analizBtn').disabled=false;"
@@ -3787,33 +4823,66 @@ class AnaPencere(QMainWindow):
         self._inis_lidar["merkez"] = h
         lat, lon = self._inis_hedef
         irt = max(getattr(self, "_guncel_irtifa", 5.0), 5.0)
+        self._js(f"lidarTaramaGoster({lat}, {lon}, 'Merkez', {h:.2f});")
         # Kuzey +1 m: 1° lat ≈ 111 000 m → 1 m ≈ 0.000009°
         self._inis_hedef_git(lat + 9e-6, lon, irt)
         self._mesaj_ekle(6, f"LIDAR merkez: {h:.2f} m — kuzey ölçümüne gidiliyor…")
         QTimer.singleShot(3000, self._dogrulama_kuzey_olcum)
 
     def _dogrulama_kuzey_olcum(self):
-        """Adım 2: Kuzey noktasında LIDAR ölçümü al, Doğuya yönel."""
+        """Adım 2: Kuzey noktasında LIDAR ölçümü al, Güneye yönel."""
         h = self._guncel_lidar_m
-        if h is not None:
-            self._inis_lidar["kuzey"] = h
         lat, lon = self._inis_hedef
         irt = max(getattr(self, "_guncel_irtifa", 5.0), 5.0)
+        if h is not None:
+            self._inis_lidar["kuzey"] = h
+            self._js(f"lidarTaramaGoster({lat + 9e-6}, {lon}, 'Kuzey', {h:.2f});")
+        self._inis_hedef_git(lat - 9e-6, lon, irt)
+        _h_str = f"{h:.2f}" if h is not None else "?"
+        self._mesaj_ekle(6, f"LIDAR kuzey: {_h_str} m — güney ölçümüne gidiliyor…")
+        QTimer.singleShot(3000, self._dogrulama_guney_olcum)
+
+    def _dogrulama_guney_olcum(self):
+        """Adım 3: Güney noktasında LIDAR ölçümü al, Doğuya yönel."""
+        h = self._guncel_lidar_m
+        lat, lon = self._inis_hedef
+        irt = max(getattr(self, "_guncel_irtifa", 5.0), 5.0)
+        if h is not None:
+            self._inis_lidar["guney"] = h
+            self._js(f"lidarTaramaGoster({lat - 9e-6}, {lon}, 'Güney', {h:.2f});")
         # Doğu +1 m: 1° lon ≈ 111 000 × cos(lat) m
         lon_offset = 9e-6 / math.cos(math.radians(lat))
         self._inis_hedef_git(lat, lon + lon_offset, irt)
-        self._mesaj_ekle(6, f"LIDAR kuzey: {h:.2f if h else '?'} m — doğu ölçümüne gidiliyor…")
+        _h_str = f"{h:.2f}" if h is not None else "?"
+        self._mesaj_ekle(6, f"LIDAR güney: {_h_str} m — doğu ölçümüne gidiliyor…")
         QTimer.singleShot(3000, self._dogrulama_dogu_olcum)
 
     def _dogrulama_dogu_olcum(self):
-        """Adım 3: Doğu noktasında LIDAR ölçümü al, hesapla."""
+        """Adım 4: Doğu noktasında LIDAR ölçümü al, Batıya yönel."""
         h = self._guncel_lidar_m
+        lat, lon = self._inis_hedef
+        irt = max(getattr(self, "_guncel_irtifa", 5.0), 5.0)
+        lon_offset = 9e-6 / math.cos(math.radians(lat))
         if h is not None:
             self._inis_lidar["dogu"] = h
+            self._js(f"lidarTaramaGoster({lat}, {lon + lon_offset}, 'Doğu', {h:.2f});")
+        self._inis_hedef_git(lat, lon - lon_offset, irt)
+        _h_str = f"{h:.2f}" if h is not None else "?"
+        self._mesaj_ekle(6, f"LIDAR doğu: {_h_str} m — batı ölçümüne gidiliyor…")
+        QTimer.singleShot(3000, self._dogrulama_bati_olcum)
+
+    def _dogrulama_bati_olcum(self):
+        """Adım 5: Batı noktasında LIDAR ölçümü al, hesapla."""
+        h = self._guncel_lidar_m
+        if h is not None:
+            self._inis_lidar["bati"] = h
+            lat, lon = self._inis_hedef
+            lon_offset = 9e-6 / math.cos(math.radians(lat))
+            self._js(f"lidarTaramaGoster({lat}, {lon - lon_offset}, 'Batı', {h:.2f});")
         self._dogrulama_hesapla()
 
     def _dogrulama_hesapla(self):
-        """Adım 4: 3 ölçümden gerçek zemin eğimini hesapla, karar ver."""
+        """Adım 6: 5 ölçümden (haç deseni) gerçek zemin eğimini hesapla, karar ver."""
         lat, lon = self._inis_hedef
         irt = max(getattr(self, "_guncel_irtifa", 5.0), 5.0)
         ok = self._inis_lidar
@@ -3826,9 +4895,29 @@ class AnaPencere(QMainWindow):
             QTimer.singleShot(2000, self._inis_komutu_gonder)
             return
 
-        # Eğim hesabı: arctan(yükseklik_farkı / 1m yatay mesafe)
-        egim_ns = math.degrees(math.atan(abs(h0 - ok.get("kuzey", h0)) / 1.0))
-        egim_ew = math.degrees(math.atan(abs(h0 - ok.get("dogu",  h0)) / 1.0))
+        # N-S ve E-W eğim bileşenleri: karşılıklı çift varsa merkezi fark
+        # (asimetrik eğimi de doğru yakalar — örn. sadece güneye eğimli zemin),
+        # sadece bir taraf ölçülebildiyse tek taraflı fark (eski davranış, fallback).
+        if "kuzey" in ok and "guney" in ok:
+            dz_ns = (ok["kuzey"] - ok["guney"]) / 2.0
+        elif "kuzey" in ok:
+            dz_ns = ok["kuzey"] - h0
+        elif "guney" in ok:
+            dz_ns = h0 - ok["guney"]
+        else:
+            dz_ns = 0.0
+
+        if "dogu" in ok and "bati" in ok:
+            dz_ew = (ok["dogu"] - ok["bati"]) / 2.0
+        elif "dogu" in ok:
+            dz_ew = ok["dogu"] - h0
+        elif "bati" in ok:
+            dz_ew = h0 - ok["bati"]
+        else:
+            dz_ew = 0.0
+
+        egim_ns = math.degrees(math.atan(abs(dz_ns)))
+        egim_ew = math.degrees(math.atan(abs(dz_ew)))
         gercek_egim = math.sqrt(egim_ns ** 2 + egim_ew ** 2)
 
         self._mesaj_ekle(6,
@@ -3853,6 +4942,7 @@ class AnaPencere(QMainWindow):
             msg = f"✗ Zemin eğimi {gercek_egim:.1f}° > 15° — bu nokta tehlikeli! Sıradaki deneniyor…"
             self._mesaj_ekle(2, msg)
             self._js(f"durumGoster({json.dumps(msg)});")
+            self._js(f"inisHedefTemizle(); inisNoktasiReddet({lat}, {lon}, {gercek_egim:.1f});")
             self._inis_bir_sonraki_dene()
 
     def _inis_bir_sonraki_dene(self):
@@ -3975,6 +5065,12 @@ class AnaPencere(QMainWindow):
                     f"⚠ ADSB UYARI: {cs}  {mesafe_m:.0f}m  "
                     f"alt={alt:.0f}m  hdg={heading:.0f}°")
                 QApplication.beep()
+                # Sesli uyarı — aynı ICAO için 60sn debounce (ayrı sayaç)
+                _tts_son = self._adsb_tts_son.get(icao, 0.0)
+                if simdi - _tts_son >= 60.0:
+                    self._adsb_tts_son[icao] = simdi
+                    _cs_sesli = callsign.strip() if callsign.strip() else "bilinmeyen araç"
+                    self._sesli_uyan(f"Yakın hava aracı uyarısı: {_cs_sesli}")
 
         # Haritada göster
         cs_js = json.dumps(callsign.strip() if callsign else f"{icao:06X}")
@@ -4017,6 +5113,50 @@ class AnaPencere(QMainWindow):
             )
 
     # ── AC_Fence yükleme ──────────────────────────────────────────────────────
+
+    def _fence_polygon_yukle(self):
+        """
+        Haritada çizilen fence polygon (_fence_noktalar) → MAVLink FENCE_POINT
+        protokolüyle ArduPilot'a yükle.
+        """
+        if not self._bagli:
+            QMessageBox.warning(self, "Bağlantı Yok", "Önce drone'a bağlanın.")
+            return
+        if len(self._fence_noktalar) < 3:
+            QMessageBox.warning(self, "Yetersiz Nokta",
+                "En az 3 köşe noktası gerekli.\n'Fence Çiz' ile haritada polygon çizin.")
+            return
+        alt_max  = float(_cfg.al("fence.alt_max", 120.0))
+        eylem    = int(_cfg.al("fence.action", 1))
+        # FENCE_ENABLE=1, FENCE_ACTION=eylem, FENCE_TYPE=2 (polygon)
+        self._mavlink.parametre_ayarla("FENCE_ENABLE", 1)
+        self._mavlink.parametre_ayarla("FENCE_ACTION", eylem)
+        self._mavlink.parametre_ayarla("FENCE_TYPE",   2)
+        self._mavlink.parametre_ayarla("FENCE_MAXALT", alt_max)
+        # FENCE_TOTAL = nokta sayısı + 1 (kapanış noktası)
+        n = len(self._fence_noktalar)
+        self._mavlink.parametre_ayarla("FENCE_TOTAL", float(n + 1))
+        # Her noktayı FENCE_POINT mesajıyla gönder
+        import threading
+        def _gonder():
+            try:
+                mav = self._mavlink._baglanti.mav
+                ts  = self._mavlink._baglanti.target_system
+                tc  = self._mavlink._baglanti.target_component
+                for idx, (lat, lon) in enumerate(self._fence_noktalar):
+                    mav.fence_point_send(ts, tc, idx, n + 1, float(lat), float(lon))
+                    import time as _t; _t.sleep(0.05)
+                # Kapanış noktası = ilk nokta
+                mav.fence_point_send(ts, tc, n, n + 1,
+                                     float(self._fence_noktalar[0][0]),
+                                     float(self._fence_noktalar[0][1]))
+                self._mesaj_ekle(4,
+                    f"✓ Fence polygon yüklendi: {n} köşe, alt_max={alt_max}m, eylem={eylem}")
+                self._js("document.getElementById('fenceEditBtn').style.background='#1a4a1a';"
+                         "document.getElementById('fenceEditBtn').style.borderColor='#3a9a3a';")
+            except Exception as _e:
+                self._mesaj_ekle(3, f"Fence polygon yükleme hatası: {_e}")
+        threading.Thread(target=_gonder, daemon=True).start()
 
     def _fence_yukle_baslat(self):
         """
@@ -4070,17 +5210,129 @@ class AnaPencere(QMainWindow):
                         self._alan_bounds = (float(_b[1]), float(_b[3]),
                                              float(_b[0]), float(_b[2]))
                         self._harita_terrain_sinir_goster()
-                    if self._alan_karar is None:
-                        from alan_inis_karar import AlanInisKarar
-                        self._alan_karar = AlanInisKarar(_npz)
+                    # AlanInisKarar kurulumu ağır (~2sn) — başka bir okuma zaten
+                    # sürüyorsa veya zaten yüklüyse tekrar tetiklemeyelim.
+                    if self._alan_karar is None and not self._alan_karar_yukleniyor:
+                        self._alan_karar_yukleniyor = True
                         self._alan_hazirlik_yapildi = True
-                        self._mesaj_ekle(6, "Terrain iniş kararı fence alanından yüklendi.")
+                        import threading as _threading_fence
+                        _threading_fence.Thread(
+                            target=self._alan_karar_arka_planda_yukle, args=(_npz,), daemon=True
+                        ).start()
                 except Exception:
                     pass
             self._js("document.getElementById('fenceBtn').style.background='#1a4a1a';"
                      "document.getElementById('fenceBtn').style.borderColor='#3a9a3a';")
         else:
             self._mesaj_ekle(3, "✗ AC_Fence yüklenemedi — log'u kontrol edin.")
+
+    def _grid_ayar_ve_uret(self, lat_min, lat_max, lon_min, lon_max):
+        """Grid ayarları dialogu göster → onaylanınca _grid_uret() çağır."""
+        from PyQt5.QtWidgets import (QDialog, QFormLayout, QDoubleSpinBox,
+                                     QSpinBox, QComboBox, QDialogButtonBox, QLabel)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("📐 Grid Survey Ayarları")
+        dlg.setMinimumWidth(300)
+        form = QFormLayout(dlg)
+
+        aralik_sb = QDoubleSpinBox()
+        aralik_sb.setRange(10, 500)
+        aralik_sb.setValue(60.0)
+        aralik_sb.setSuffix(" m")
+        aralik_sb.setToolTip("Paralel çizgiler arası mesafe")
+        form.addRow("Çizgi Aralığı:", aralik_sb)
+
+        irtifa_sb = QDoubleSpinBox()
+        irtifa_sb.setRange(10, 500)
+        irtifa_sb.setValue(50.0)
+        irtifa_sb.setSuffix(" m AGL")
+        irtifa_sb.setToolTip("Waypoint irtifası (zemin üstü)")
+        form.addRow("Uçuş İrtifası:", irtifa_sb)
+
+        yon_combo = QComboBox()
+        yon_combo.addItems(["Yatay (E→W şeritler)", "Dikey (N→S şeritler)"])
+        form.addRow("Tarama Yönü:", yon_combo)
+
+        import math as _m
+        lat_ort = (lat_min + lat_max) / 2.0
+        alan_m2 = (abs(lat_max - lat_min) * 111000) * (abs(lon_max - lon_min) * 111000 * _m.cos(_m.radians(lat_ort)))
+        form.addRow("", QLabel(f"<small>Alan: ~{alan_m2/1e6:.2f} km²</small>"))
+
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        self._grid_uret(lat_min, lat_max, lon_min, lon_max,
+                        aralik_m=aralik_sb.value(),
+                        irtifa=irtifa_sb.value(),
+                        dikey=(yon_combo.currentIndex() == 1))
+
+    def _grid_uret(self, lat_min: float, lat_max: float,
+                   lon_min: float, lon_max: float,
+                   aralik_m: float = 60.0, irtifa: float = 50.0,
+                   dikey: bool = False):
+        """
+        Bounding box içinde paralel çizgi survey görevi üretir.
+        aralik_m: çizgiler arası mesafe (m)
+        irtifa:   WP irtifası (m, AGL)
+        Oluşturulan WP'ler self._wp_listesi'ne eklenir + haritaya gönderilir.
+        """
+        import math as _math
+
+        # Metre/derece dönüşümü (yaklaşık)
+        lat_ort = (lat_min + lat_max) / 2.0
+        m_per_lat = 111_000.0
+        m_per_lon = 111_000.0 * _math.cos(_math.radians(lat_ort))
+
+        # Önce mevcut WP listesini temizle
+        self._wp_listesi = []
+        sayac = 0
+
+        def _wp(lat_, lon_):
+            return {"lat": lat_, "lon": lon_, "alt": irtifa,
+                    "komut": "NAV_WAYPOINT", "p1": 0, "p2": 0, "p3": 0}
+
+        if not dikey:
+            # Yatay şeritler: K→G ilerleme, ping-pong B↔D
+            lat_aralik = aralik_m / m_per_lat
+            lat = lat_max
+            sol_dan = True
+            while lat >= lat_min:
+                if sol_dan:
+                    self._wp_listesi += [_wp(lat, lon_min), _wp(lat, lon_max)]
+                else:
+                    self._wp_listesi += [_wp(lat, lon_max), _wp(lat, lon_min)]
+                sol_dan = not sol_dan
+                lat -= lat_aralik
+                sayac += 1
+                if sayac > 200: break
+        else:
+            # Dikey şeritler: B→D ilerleme, ping-pong K↔G
+            lon_aralik = aralik_m / m_per_lon
+            lon = lon_min
+            kuzeyden = True
+            while lon <= lon_max:
+                if kuzeyden:
+                    self._wp_listesi += [_wp(lat_max, lon), _wp(lat_min, lon)]
+                else:
+                    self._wp_listesi += [_wp(lat_min, lon), _wp(lat_max, lon)]
+                kuzeyden = not kuzeyden
+                lon += lon_aralik
+                sayac += 1
+                if sayac > 200: break
+
+        self._wp_tablo_yenile()
+
+        # Haritaya gönder
+        import json as _json
+        self._js(f"wpListeYukle({_json.dumps(self._wp_listesi)});")
+        self._mesaj_ekle(4,
+            f"📐 Grid görevi: {len(self._wp_listesi)} WP, "
+            f"{sayac} şerit, {aralik_m:.0f}m aralık, {irtifa:.0f}m irtifa — "
+            "Görevi Yükle ile drone'a gönderin.")
 
     # ── Genel ────────────────────────────────────────────────────────────────
 
@@ -4096,6 +5348,11 @@ class AnaPencere(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        # Normal akışta ana harita, mini-harita loadFinished'ından sonra tetiklenir
+        # (bkz. _mini_harita_yukle). Mini-harita hiç yüklenmezse (HARITA_MEVCUT False
+        # ya da uçuş sekmesi henüz oluşturulmadıysa) güvenlik ağı olarak burada da dene.
+        if HARITA_MEVCUT and not self._harita_tab_hazir:
+            QTimer.singleShot(1500, self._harita_tab_yukle)
 
     def closeEvent(self, event):
         # Timer'ları durdur

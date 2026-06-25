@@ -91,6 +91,7 @@ class AnalizSonucu:
     hata: Optional[str] = None
     osm_aktif: bool = False
     ruzgar_skoru_aktif: bool = False
+    voltaj_sapma_faktoru: float = 1.0   # <1.0 — hücre voltajı beklenenden düşük (yük sarkması)
 
     @property
     def basarili(self) -> bool:
@@ -214,12 +215,16 @@ class GuvenliInisAnalizci:
         batarya_wh: float = BATARYA_KAPASİTESİ_WH,
         ruzgar_ms: float = 0.0,
         ruzgar_yonu_derece: float = 0.0,
+        min_hucre_volt: float = 0.0,
     ) -> AnalizSonucu:
-        yaricap_m = self._ucucabilir_yaricap(batarya_yuzde, hiz_ms, batarya_wh)
+        yaricap_m = self._ucucabilir_yaricap(batarya_yuzde, hiz_ms, batarya_wh, min_hucre_volt)
+        sapma_faktoru = self._voltaj_sapma_faktoru(batarya_yuzde, min_hucre_volt)
         try:
-            return self._cok_katmanli_analiz(
+            sonuc = self._cok_katmanli_analiz(
                 lat, lon, yaricap_m, ruzgar_ms, ruzgar_yonu_derece
             )
+            sonuc.voltaj_sapma_faktoru = sapma_faktoru
+            return sonuc
         except Exception as e:
             return AnalizSonucu(
                 merkez_lat=lat, merkez_lon=lon,
@@ -233,10 +238,39 @@ class GuvenliInisAnalizci:
 
     # ── Uçuş yarıçapı ─────────────────────────────────────────────────────
 
-    @staticmethod
-    def _ucucabilir_yaricap(batarya_yuzde: int, hiz_ms: float,
-                             batarya_wh: float) -> float:
-        kalan_wh = batarya_wh * (batarya_yuzde / 100.0) * 0.5
+    # LiPo hücre — basit doğrusal deşarj eğrisi yaklaşıklığı (dinlenme voltajı).
+    # Gerçek hücre kalibrasyon verisi yokken kabul edilebilir yaklaşıklık:
+    # %0 ≈ 3.3V, %100 ≈ 4.2V. Amaç kesin SOC hesabı değil — firmware'in
+    # bildirdiği yüzdeyle ölçülen voltaj arasındaki SAPMAYI (yük altında sarkma)
+    # tespit edip menzil hesabına ek güvenlik payı olarak yansıtmak.
+    _LIPO_HUCRE_BOS_V  = 3.3
+    _LIPO_HUCRE_DOLU_V = 4.2
+    _VOLTAJ_SAPMA_ESIK = 0.15   # bu kadar V sarkma "anlamlı" sayılır
+
+    @classmethod
+    def _voltaj_sapma_faktoru(cls, batarya_yuzde: int, min_hucre_volt: float) -> float:
+        """
+        Ölçülen hücre voltajı, firmware'in bildirdiği % için beklenenden daha
+        düşükse (yük altında sarkma — yaşlı/zayıf pil ya da soğuk hava), ek
+        güvenlik payı katsayısı döndürür (1.0=sapma yok, <1.0=ek kısıtlama).
+        """
+        if min_hucre_volt <= 0:
+            return 1.0
+        beklenen_v = cls._LIPO_HUCRE_BOS_V + (batarya_yuzde / 100.0) * (
+            cls._LIPO_HUCRE_DOLU_V - cls._LIPO_HUCRE_BOS_V
+        )
+        sapma = beklenen_v - min_hucre_volt
+        if sapma <= cls._VOLTAJ_SAPMA_ESIK:
+            return 1.0
+        # Her 0.1V ek sapma için %10 ek kısıtlama, en fazla %50 (faktör 0.5)
+        ek_kisitlama = min((sapma - cls._VOLTAJ_SAPMA_ESIK) / 0.1 * 0.10, 0.5)
+        return 1.0 - ek_kisitlama
+
+    @classmethod
+    def _ucucabilir_yaricap(cls, batarya_yuzde: int, hiz_ms: float,
+                             batarya_wh: float, min_hucre_volt: float = 0.0) -> float:
+        sapma_faktoru = cls._voltaj_sapma_faktoru(batarya_yuzde, min_hucre_volt)
+        kalan_wh = batarya_wh * (batarya_yuzde / 100.0) * 0.5 * sapma_faktoru
         return (kalan_wh / WHM_PER_KM) * 1000
 
     # ── Çok katmanlı analiz ───────────────────────────────────────────────

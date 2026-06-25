@@ -27,3 +27,6 @@ Thumbs.db
 # SRTM cache
 *.hgt
 srtm_cache/
+
+# Üretilmiş terrain verisi (büyük binary, ucus_alani_hazirla.py ile yeniden üretilebilir)
+alan_verisi.npz

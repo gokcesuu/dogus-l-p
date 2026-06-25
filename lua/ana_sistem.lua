@@ -66,10 +66,13 @@ local function guncelle()
     local bat_volt  = battery:voltage()
     local bat_amper = battery:current_amps()
 
-    -- Rüzgar verisi
+    -- Rüzgar verisi — Copter'da fiziksel airspeed/pitot sensörü YOK, rüzgar
+    -- EKF tahmininden (ahrs:wind_estimate, NED Vector3f) alınır. airspeed:get_airspeed()
+    -- pitot gerektirir ve bu platformda hep 0/nil döner — kullanılmamalı.
     local ruzgar_ms = 0
-    if airspeed then
-        ruzgar_ms = math.abs(airspeed:get_airspeed() or 0)
+    local wind_vec = ahrs:wind_estimate()
+    if wind_vec then
+        ruzgar_ms = wind_vec:length()
     end
 
     -- ── Batarya kararları ─────────────────────────────────────────────────

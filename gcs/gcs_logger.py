@@ -53,8 +53,8 @@ class GCSLogger:
             "ruzgar_zemin_ms", "ruzgar_trend",
             "imu0_c", "imu1_c", "imu2_c",
             "ekf_bayrak", "ekf_hata",
-            "mod_id",
-        ])
+            "mod_id", "lidar_m",
+        ], extrasaction="ignore")
         self._csv_yazar.writeheader()
 
         self._log_f = open(log_yolu, "w", encoding="utf-8")

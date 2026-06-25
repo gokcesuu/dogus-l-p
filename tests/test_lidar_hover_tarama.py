@@ -3,7 +3,7 @@ tests/test_lidar_hover_tarama.py
 LIDAR hover tarama — iniş öncesi zemin doğrulama metodlarının birim testleri.
 
 Test edilen metodlar (AnaPencere sınıfından bağımsız olarak izole test edilir):
-  _dogrulama_hesapla()    — 3 LIDAR ölçümünden eğim hesabı + karar
+  _dogrulama_hesapla()    — 5 LIDAR ölçümünden (merkez + haç deseni K/G/D/B) eğim hesabı + karar
   _inis_bir_sonraki_dene() — sıradaki güvenli noktaya geçiş mantığı
   _dogrulama_merkez_olcum() — LIDAR=None fallback
 
@@ -57,15 +57,37 @@ def _sahte_gcs(
 class TestEgimHesabi:
     """
     _dogrulama_hesapla()'nın eğim formülünü doğrudan test eder.
-    Formül: egim_ns = atan(|h0 - h_kuzey| / 1m)
-            egim_ew = atan(|h0 - h_dogu|  / 1m)
-            toplam  = sqrt(egim_ns² + egim_ew²)
+    Karşılıklı çift (kuzey+güney veya doğu+batı) varsa merkezi fark kullanılır
+    — asimetrik eğimi de doğru yakalar. Yalnızca bir taraf ölçülebildiyse tek
+    taraflı fark (eski 3-nokta davranışı, fallback).
+        dz_ns = (h_kuzey - h_guney) / 2   (yalnız biri varsa: o - h0, ya da h0 - o)
+        dz_ew = (h_dogu  - h_bati ) / 2   (yalnız biri varsa aynı mantık)
+        egim_ns = atan(|dz_ns|), egim_ew = atan(|dz_ew|)
+        toplam  = sqrt(egim_ns² + egim_ew²)
     """
 
-    def _hesapla(self, merkez, kuzey=None, dogu=None):
+    def _hesapla(self, merkez, kuzey=None, guney=None, dogu=None, bati=None):
         h0 = merkez
-        egim_ns = math.degrees(math.atan(abs(h0 - (kuzey if kuzey is not None else h0)) / 1.0))
-        egim_ew = math.degrees(math.atan(abs(h0 - (dogu  if dogu  is not None else h0)) / 1.0))
+        if kuzey is not None and guney is not None:
+            dz_ns = (kuzey - guney) / 2.0
+        elif kuzey is not None:
+            dz_ns = kuzey - h0
+        elif guney is not None:
+            dz_ns = h0 - guney
+        else:
+            dz_ns = 0.0
+
+        if dogu is not None and bati is not None:
+            dz_ew = (dogu - bati) / 2.0
+        elif dogu is not None:
+            dz_ew = dogu - h0
+        elif bati is not None:
+            dz_ew = h0 - bati
+        else:
+            dz_ew = 0.0
+
+        egim_ns = math.degrees(math.atan(abs(dz_ns)))
+        egim_ew = math.degrees(math.atan(abs(dz_ew)))
         return math.sqrt(egim_ns ** 2 + egim_ew ** 2)
 
     def test_duz_zemin_sifir_egim(self):
@@ -119,6 +141,32 @@ class TestEgimHesabi:
         """Sadece merkez + kuzey varsa doğu eksik → yalnız kuzey eğimi."""
         egim = self._hesapla(5.0, kuzey=4.8)   # dogu=None → 0
         assert egim > 0
+
+    def test_asimetrik_egim_sadece_guneyde_3_nokta_kacirir(self):
+        """
+        Zemin SADECE güneye eğimli (kuzey düz). Eski 3-nokta yöntemi (yalnız
+        kuzey+doğu ölçer) bunu tamamen kaçırırdı — yeni 5-nokta (haç) deseni
+        güney ölçümüyle bu eğimi yakalamalı.
+        """
+        eski_3nokta = self._hesapla(5.0, kuzey=5.0, dogu=5.0)   # güney/batı yok
+        yeni_5nokta = self._hesapla(5.0, kuzey=5.0, guney=4.4, dogu=5.0)
+        assert eski_3nokta < 0.001, "Kuzey/doğu düz görünüyor — eski yöntem kaçırır"
+        assert yeni_5nokta > 15.0, "Güney ölçümü gerçek eğimi yakalamalı"
+
+    def test_karsilikli_cift_merkezi_fark_kullanir(self):
+        """Kuzey ve güney ikisi de varsa, simetrik (merkezi) fark kullanılmalı —
+        tek taraflı farktan farklı (daha doğru) bir sonuç üretebilir."""
+        # Kuzey 4.8 (0.2 fark), güney 5.3 (0.3 fark) — merkezi fark: (4.8-5.3)/2 = -0.25
+        egim_cift = self._hesapla(5.0, kuzey=4.8, guney=5.3, dogu=5.0, bati=5.0)
+        beklenen = math.degrees(math.atan(0.25))
+        assert abs(egim_cift - beklenen) < 0.01
+
+    def test_tum_4_yon_olculdugunde_simetrik_zemin_dogru(self):
+        """Simetrik tümsek/çukur (K=G, D=B farklı yükseklikte) → doğru toplam eğim."""
+        egim = self._hesapla(5.0, kuzey=4.8, guney=5.2, dogu=5.0, bati=5.0)
+        # dz_ns = (4.8-5.2)/2 = -0.2 → egim_ns = atan(0.2)
+        beklenen_ns = math.degrees(math.atan(0.2))
+        assert abs(egim - beklenen_ns) < 0.01
 
     def test_lon_offset_hesabi_istanbul(self):
         """İstanbul enleminde (+41°) lon offseti cos(lat) ile düzeltilmeli."""

@@ -40,7 +40,11 @@
     "gust_min_sure_s": 3.0,
     "_gust_sure_aciklama": "Bu kadar saniye süren gust motorları zorlayabilir — alarm üretilir",
     "min_gecerli_ms": 2.0,
-    "_min_gecerli_aciklama": "Bu değerin altı EKF gürültü tabanı — Hellmann ve gust işleme durdurulur"
+    "_min_gecerli_aciklama": "Bu değerin altı EKF gürültü tabanı — Hellmann ve gust işleme durdurulur",
+    "ema_alpha": 0.25,
+    "_ema_aciklama": "EMA filtresi yumuşatma katsayısı (0–1): küçük=daha düzgün/yavaş, büyük=daha hızlı/sert",
+    "trend_esik": 0.03,
+    "_trend_esik_aciklama": "Trend göstergesinin okunu değiştirmek için gereken minimum m/s/sn eşiği"
   },
 
   "hiz_kisitlama": {

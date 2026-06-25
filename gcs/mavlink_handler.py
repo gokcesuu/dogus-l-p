@@ -62,6 +62,23 @@ UÇUŞ_MODLARI = {
     25: "YAVAŞ LOITER",     # LOITER (yavaş)
 }
 
+# Komut kodu → isim (MISSION_ITEM okumak için)
+_KOMUT_ADLARI = {
+    16: "NAV_WAYPOINT",
+    22: "TAKEOFF",
+    21: "LAND",
+    18: "LOITER_TURNS",
+    19: "LOITER_TIME",
+    17: "LOITER_UNLIMITED",
+    20: "RTL",
+    93: "DELAY",
+   177: "DO_JUMP",
+   178: "DO_CHANGE_SPEED",
+   189: "DO_LAND_START",
+   203: "DO_DIGICAM_CONTROL",
+   206: "DO_SET_CAM_TRIGG_DIST",
+}
+
 EKF_BAYRAKLARI = {
     0x0001: "Tutum",
     0x0002: "Yatay Hız",
@@ -110,6 +127,20 @@ class MAVLinkBaglantisi(QThread):
     # (basarili: bool, mesaj: str)
     mission_alindi    = pyqtSignal(list)
     # okunan waypoint listesi: [{"lat": float, "lon": float, "alt": float}, ...]
+
+    mission_wp_degisti = pyqtSignal(int)          # aktif WP sıra no (MISSION_CURRENT)
+    komut_onaylandi    = pyqtSignal(int, int)      # (komut_id, mav_result: 0=OK)
+    rc_guncellendi     = pyqtSignal(int, bool)     # (rssi 0-255, failsafe: bool)
+    fence_ihlal        = pyqtSignal(int)           # fence breach_status (0=OK, >0=ihlal)
+    ev_noktasi_guncellendi  = pyqtSignal(float, float, float)  # (lat, lon, alt_m) HOME_POSITION
+    batarya_hucre_guncellendi = pyqtSignal(float, int)         # (min_hucre_volt, hucre_sayisi)
+    servo_doyum_guncellendi = pyqtSignal(list)
+    # [{"kanal": 1..8, "pwm": int, "doyum": bool}, ...]  — SERVO_OUTPUT_RAW
+    log_listesi_alindi  = pyqtSignal(list)
+    # [{"id": int, "size": int, "time_utc": int}, ...]  — LOG_ENTRY listesi
+    log_ilerleme        = pyqtSignal(int, int)   # (alinan_bayt, toplam_bayt)
+    log_tamamlandi      = pyqtSignal(str)         # kaydedilen dosya yolu
+    log_hata            = pyqtSignal(str)          # hata mesajı
 
     def __init__(self, baglanti_dizesi: str = _VARSAYILAN_DIZE,
                  anahtar_dosya: str = None):
@@ -322,6 +353,23 @@ class MAVLinkBaglantisi(QThread):
                 self._isle_terrain_rapor(msg)
             elif tip == "VIBRATION":
                 self._isle_vibrasyon(msg)
+            elif tip == "MISSION_CURRENT":
+                self.mission_wp_degisti.emit(msg.seq)
+            elif tip == "COMMAND_ACK":
+                self.komut_onaylandi.emit(msg.command, msg.result)
+            elif tip == "RC_CHANNELS":
+                # rssi=255 → geçersiz/bağlı değil; chan3_raw <950 → throttle failsafe
+                failsafe = (msg.rssi == 0 or
+                            (msg.chan3_raw < 950 and msg.chan3_raw > 0))
+                self.rc_guncellendi.emit(msg.rssi, failsafe)
+            elif tip == "FENCE_STATUS":
+                self.fence_ihlal.emit(msg.breach_status)
+            elif tip == "HOME_POSITION":
+                self._isle_home(msg)
+            elif tip == "BATTERY_STATUS":
+                self._isle_batarya_status(msg)
+            elif tip == "SERVO_OUTPUT_RAW":
+                self._isle_servo(msg)
 
     # ------------------------------------------------------------------
     def _isle_hb(self, msg):
@@ -371,7 +419,14 @@ class MAVLinkBaglantisi(QThread):
         self.ruzgar_guncellendi.emit(msg.speed, msg.direction)
 
     def _isle_lidar(self, msg):
-        """DISTANCE_SENSOR mesajı — sensör yönü downward (orientation=25) tercih edilir."""
+        """
+        DISTANCE_SENSOR mesajı — yalnızca zemine bakan (orientation=25,
+        MAV_SENSOR_ROTATION_PITCH_270) sensör kabul edilir. Drone'da ileri/yana
+        bakan ek bir mesafe sensörü (engel algılama vb.) varsa, onun verisi
+        "zemine mesafe" diye yanlış kullanılmasın.
+        """
+        if getattr(msg, "orientation", 25) != 25:
+            return
         # current_distance: cm cinsinden; 65535 = geçersiz/out-of-range
         if msg.current_distance < 65535:
             mesafe_m = msg.current_distance / 100.0
@@ -645,10 +700,84 @@ class MAVLinkBaglantisi(QThread):
     def mod_degistir(self, mod_id: int):
         self._kuyruga_ekle(self._mod_degistir_ic, mod_id)
 
+    def hiz_kisitla(self, hiz_ms: float):
+        """
+        MAV_CMD_DO_CHANGE_SPEED (178) ile uçuş hızını kısıtlar.
+        Rüzgar yüksekken motorları korumak için çağrılır.
+        hiz_ms: hedef airspeed/groundspeed (m/s)
+        """
+        self._kuyruga_ekle(self._hiz_kisitla_ic, float(hiz_ms))
+
+    def _hiz_kisitla_ic(self, hiz_ms: float):
+        if self._baglanti is None:
+            return
+        self._baglanti.mav.command_long_send(
+            self._baglanti.target_system,
+            self._baglanti.target_component,
+            178,   # MAV_CMD_DO_CHANGE_SPEED
+            0,
+            1,       # param1: speed type — 1=groundspeed
+            hiz_ms,  # param2: speed (m/s)
+            -1,      # param3: throttle (-1=no change)
+            0, 0, 0, 0,
+        )
+
+    def irtifa_degistir(self, hedef_m: float):
+        """
+        MAV_CMD_DO_CHANGE_ALT (186) ile drone'un irtifasını değiştirir.
+        Rüzgar gust yönetimi tarafından çağrılır — mevcut konumu korur, sadece yüksekliği ayarlar.
+        hedef_m: eve göre bağıl irtifa (m), MAV_FRAME_GLOBAL_RELATIVE_ALT (frame=3).
+        """
+        self._kuyruga_ekle(self._irtifa_degistir_ic, float(hedef_m))
+
+    def _irtifa_degistir_ic(self, hedef_m: float):
+        if self._baglanti is None:
+            return
+        self._baglanti.mav.command_long_send(
+            self._baglanti.target_system,
+            self._baglanti.target_component,
+            186,   # MAV_CMD_DO_CHANGE_ALT
+            0,     # confirmation
+            hedef_m,   # param1: hedef irtifa (m)
+            3,         # param2: MAV_FRAME_GLOBAL_RELATIVE_ALT
+            0, 0, 0, 0, 0,
+        )
+
     def ev_noktasi_sifirla(self):
         # Sadece Python değişkeni günceller — socket yazımı yok, thread-safe.
         self._ev_lat = self._guncel_lat
         self._ev_lon = self._guncel_lon
+
+    def _isle_home(self, msg):
+        """HOME_POSITION: drone'un resmi ev noktasını güncelle."""
+        lat = msg.latitude  / 1e7
+        lon = msg.longitude / 1e7
+        alt = msg.altitude  / 1000.0   # mm → m
+        # Ev noktasını resmi koordinatla override et
+        self._ev_lat = lat
+        self._ev_lon = lon
+        self.ev_noktasi_guncellendi.emit(lat, lon, alt)
+
+    def _isle_batarya_status(self, msg):
+        """BATTERY_STATUS: hücre başına voltaj — kritik hücre tespiti."""
+        # voltages dizisi: mV cinsinden, 65535 = geçersiz
+        voltlar = [v / 1000.0 for v in msg.voltages if v != 65535 and v > 0]
+        if not voltlar:
+            return
+        self.batarya_hucre_guncellendi.emit(min(voltlar), len(voltlar))
+
+    def _isle_servo(self, msg):
+        """SERVO_OUTPUT_RAW: kanal PWM değerlerini kontrol et, doyum (>1950µs) uyar."""
+        servo_bilgi = []
+        for k in range(1, 9):          # kanal 1-8
+            attr = f"servo{k}_raw"
+            pwm = getattr(msg, attr, 0) or 0
+            if pwm == 0:
+                continue
+            doyum = pwm >= 1950        # ArduPilot PWM max ~2000µs → doyum eşiği
+            servo_bilgi.append({"kanal": k, "pwm": pwm, "doyum": doyum})
+        if servo_bilgi:
+            self.servo_doyum_guncellendi.emit(servo_bilgi)
 
     # ── MAVLink MISSION Protokolü ─────────────────────────────────────────────
 
@@ -726,6 +855,7 @@ class MAVLinkBaglantisi(QThread):
                         "LOITER_UNLIMITED":  17,
                         "RTL":               20,
                         "DELAY":             93,
+                        "DO_LAND_START":     189,
                     }
                     cmd_id = _KOMUT_KODLARI.get(wp.get("komut", "NAV_WAYPOINT"), 16)
                     mav.mission_item_int_send(
@@ -735,7 +865,10 @@ class MAVLinkBaglantisi(QThread):
                         cmd_id,
                         0,       # current
                         1,       # autocontinue
-                        0, 0, 0, 0,
+                        float(wp.get('p1', 0)),   # param1
+                        float(wp.get('p2', 0)),   # param2: yarıçap, tekrar vb.
+                        float(wp.get('p3', 0)),   # param3: ivme, dikey bekleme vb.
+                        0,                         # param4: yaw
                         int(wp['lat'] * 1e7),
                         int(wp['lon'] * 1e7),
                         float(wp.get('alt', 50)),
@@ -748,6 +881,19 @@ class MAVLinkBaglantisi(QThread):
                 return
 
         self.mission_yuklendi.emit(False, "Zaman aşımı — drone yanıt vermedi (15 sn)")
+
+    def mission_wp_atla(self, seq: int):
+        """Uçuş sırasında belirtilen seq numaralı WP'yi aktif yapar (MISSION_SET_CURRENT)."""
+        self._kuyruga_ekle(self._mission_wp_atla_ic, seq)
+
+    def _mission_wp_atla_ic(self, seq: int):
+        if self._baglanti is None:
+            return
+        self._baglanti.mav.mission_set_current_send(
+            self._baglanti.target_system,
+            self._baglanti.target_component,
+            seq
+        )
 
     def mission_temizle(self):
         """Drone'daki görev listesini temizler."""
@@ -801,7 +947,11 @@ class MAVLinkBaglantisi(QThread):
             wp_listesi.append({
                 'lat': item.x / 1e7,
                 'lon': item.y / 1e7,
-                'alt': float(item.z)
+                'alt':    float(item.z),
+                'komut':  _KOMUT_ADLARI.get(item.command, "NAV_WAYPOINT"),
+                'p1':     float(item.param1),
+                'p2':     float(item.param2),
+                'p3':     float(item.param3),
             })
 
         # Okuma tamamlandı bildirimi
@@ -822,3 +972,89 @@ class MAVLinkBaglantisi(QThread):
     @staticmethod
     def mod_adi(mod_id: int) -> str:
         return UÇUŞ_MODLARI.get(mod_id, f"MOD-{mod_id}")
+
+    # ── Uçuş Logu İndirme (LOG_REQUEST_LIST + LOG_DATA) ───────────────────────
+
+    def log_listesi_iste(self):
+        """Drone'daki log listesini ister → log_listesi_alindi sinyali."""
+        self._kuyruga_ekle(self._log_listesi_iste_ic)
+
+    def _log_listesi_iste_ic(self):
+        if self._baglanti is None:
+            self.log_hata.emit("Bağlantı yok")
+            return
+        mav = self._baglanti.mav
+        ts, tc = self._baglanti.target_system, self._baglanti.target_component
+        mav.log_request_list_send(ts, tc, 0, 0xFFFF)
+        loglar = []
+        bitis = time.time() + 8.0
+        while time.time() < bitis:
+            msg = self._baglanti.recv_match(
+                type=["LOG_ENTRY", "LOG_REQUEST_END"],
+                blocking=True, timeout=2.0
+            )
+            if msg is None:
+                continue
+            t = msg.get_type()
+            if t == "LOG_ENTRY":
+                loglar.append({
+                    "id":       msg.id,
+                    "size":     msg.size,
+                    "time_utc": getattr(msg, "time_utc", 0),
+                })
+                if msg.id == msg.last_log_num:
+                    break
+            elif t == "LOG_REQUEST_END":
+                break
+        self.log_listesi_alindi.emit(loglar)
+
+    def log_indir(self, log_id: int, kayit_yolu: str):
+        """Belirtilen log_id'yi indirir. Bloklamalı — ayrı bir kuyruk thread'inde çalışır."""
+        self._kuyruga_ekle(self._log_indir_ic, log_id, kayit_yolu)
+
+    def _log_indir_ic(self, log_id: int, kayit_yolu: str):
+        if self._baglanti is None:
+            self.log_hata.emit("Bağlantı yok")
+            return
+        mav = self._baglanti.mav
+        ts, tc = self._baglanti.target_system, self._baglanti.target_component
+        # Log boyutunu bul
+        mav.log_request_list_send(ts, tc, log_id, log_id)
+        boyut = 0
+        bitis = time.time() + 5.0
+        while time.time() < bitis:
+            msg = self._baglanti.recv_match(type="LOG_ENTRY", blocking=True, timeout=2.0)
+            if msg and msg.id == log_id:
+                boyut = msg.size
+                break
+        if boyut == 0:
+            self.log_hata.emit(f"Log {log_id} bulunamadı veya boyut 0")
+            return
+
+        CHUNK = 90   # LOG_REQUEST_DATA ofs + count (max 90 bayt/mesaj)
+        ofs = 0
+        parca_sayisi = (boyut + CHUNK - 1) // CHUNK
+        tampun = bytearray()
+        import struct
+        mav.log_request_data_send(ts, tc, log_id, 0, boyut)
+        bitis = time.time() + 120.0
+        alinan = {}
+        while len(alinan) < parca_sayisi and time.time() < bitis:
+            msg = self._baglanti.recv_match(type="LOG_DATA", blocking=True, timeout=3.0)
+            if msg is None:
+                continue
+            if msg.id != log_id:
+                continue
+            chunk_data = bytes(msg.data[:msg.count])
+            alinan[msg.ofs] = chunk_data
+            self.log_ilerleme.emit(len(alinan) * CHUNK, boyut)
+        # Sıralı birleştir
+        for ofs_k in sorted(alinan.keys()):
+            tampun.extend(alinan[ofs_k])
+
+        try:
+            with open(kayit_yolu, "wb") as f:
+                f.write(tampun[:boyut])
+            self.log_tamamlandi.emit(kayit_yolu)
+        except Exception as e:
+            self.log_hata.emit(f"Dosya kaydetme hatası: {e}")

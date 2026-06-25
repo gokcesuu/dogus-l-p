@@ -21,9 +21,6 @@ local DONGU_HZ              = 5      -- 200ms'de bir çalış (hızlı kontrol)
 -- GPS
 local GPS_KAYIP_SURE_MS     = 3000   -- 3 saniye GPS yoksa acil
 
--- EKF
-local EKF_HATA_ESIK         = 0.8   -- velocity_variance
-
 -- Batarya hücre voltajı (LiPo)
 local HUCRE_KRITIK_V        = 3.3   -- hücre başı kritik voltaj
 local HUCRE_SAYISI          = 4     -- 4S batarya
@@ -83,20 +80,20 @@ local function guncelle()
         end
     end
 
-    -- ── EKF Kontrolü ──────────────────────────────────────────────────────
-
-    local ekf_ok, ekf_flags = ahrs:get_ekf_type()  -- ArduPilot EKF durumu
-    local vel_variance = ahrs:get_vel_innovations_and_variances()
-    if vel_variance and vel_variance > EKF_HATA_ESIK then
+    -- ── EKF/AHRS Kontrolü ─────────────────────────────────────────────────
+    -- ahrs:healthy() — basit, her zaman geçerli boolean sağlık kontrolü.
+    -- (Önceki sürüm ahrs:get_vel_innovations_and_variances()'ın döndürdüğü
+    -- Vector3f'i doğrudan sayıyla karşılaştırıyordu — bu tip uyuşmazlığı
+    -- Lua runtime hatası fırlatır ve ArduPilot scripti art arda hata sonrası
+    -- otomatik devre dışı bırakır, tüm acil_inis korumaları sessizce kaybolurdu.)
+    local ahrs_saglikli = ahrs:healthy()
+    if not ahrs_saglikli then
         if not ekf_uyari_gonderildi then
             ekf_uyari_gonderildi = true
             if armed then
-                rtl_ver(string.format("EKF hata puanı yüksek: %.2f", vel_variance))
+                rtl_ver("EKF/AHRS sağlıksız")
             else
-                gcs_mesaj(4, string.format(
-                    "EKF uyarı: Hata puanı %.2f > %.2f. Kalibre et!",
-                    vel_variance, EKF_HATA_ESIK
-                ))
+                gcs_mesaj(4, "EKF uyarı: AHRS sağlıksız. Kalibre et!")
             end
         end
     else

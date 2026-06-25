@@ -121,8 +121,8 @@ function update()
     local guncel_lat = pos:lat() / 1e7
     local guncel_lon = pos:lng() / 1e7
 
-    -- Önce yeterli yüksekliğe çık
-    local irtifa = ahrs:get_altitude()
+    -- Önce yeterli yüksekliğe çık (acil_inis.lua ile aynı, doğrulanmış API)
+    local irtifa = baro:get_altitude()
     if irtifa ~= nil and irtifa < MIN_IRTIFA_M then
         local vel = Vector3f()
         vel:x(0.0)
