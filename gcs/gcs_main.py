@@ -41,152 +41,31 @@ except Exception:
     TERRAIN_MEVCUT = False
 
 from gcs_logger import GCSLogger
+from tile_cache import TileCacheSunucusu
+
+
+def _harita_html_olustur() -> str:
+    import os
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+    try:
+        css_icerik = open(os.path.join(static_dir, "leaflet.css"), encoding="utf-8").read()
+        js_icerik  = open(os.path.join(static_dir, "leaflet.js"),  encoding="utf-8").read()
+    except OSError:
+        return HARITA_HTML  # statik dosya yoksa CDN'e geri dön
+    return HARITA_HTML.replace(
+        '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>',
+        f'<style>\n{css_icerik}\n</style>'
+    ).replace(
+        '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>',
+        f'<script>\n{js_icerik}\n</script>'
+    )
 from ucus_raporu import UcusKaydedici
 import config_yukleyici as _cfg
 
 
-# ── RTL İzleyici ─────────────────────────────────────────────────────────────
-
-class RtlIzleyici:
-    """
-    RTL başladıktan sonra 'eve uzaklık' trendini izler.
-    İlerleme yoksa veya kritik koşul tespit edilirse tetiklendi_cb çağrılır.
-    """
-
-    STABIL_SURE_S    = float(_cfg.al("rtl_izleyici.stabil_sure_s",    15))
-    KONTROL_ARALIK_S = float(_cfg.al("rtl_izleyici.kontrol_aralik_s", 25))
-    MIN_AZALMA_M     = float(_cfg.al("rtl_izleyici.min_azalma_m",     20))
-    BAT_KRITIK_YZD   = int(_cfg.al("rtl_izleyici.batarya_kritik_yuzde", 15))
-    GECMIS_BOYUT     = 6
-
-    def __init__(self, tetiklendi_cb):
-        self._cb          = tetiklendi_cb
-        self._aktif       = False
-        self._baslama_t   = 0.0
-        self._son_kontrol = 0.0
-        self._gecmis: deque = deque(maxlen=self.GECMIS_BOYUT)
-        self._tetiklendi  = False
-
-    def baslat(self, baslama_uzakligi: float):
-        self._aktif       = True
-        self._tetiklendi  = False
-        self._baslama_t   = time.monotonic()
-        self._son_kontrol = self._baslama_t
-        self._gecmis.clear()
-        self._gecmis.append(baslama_uzakligi)
-
-    def guncelle(self, uzaklik: float, batarya_yuzde: int,
-                 ruzgar_ms: float, ekf_hata: float, gps_fix: int):
-        if not self._aktif or self._tetiklendi:
-            return
-        simdi = time.monotonic()
-
-        # Başlangıç mesafesi henüz gelmemişse deque'yi güncelle ama takılı say
-        if uzaklik > 0:
-            self._gecmis.append(uzaklik)
-
-        if simdi - self._baslama_t < self.STABIL_SURE_S:
-            return
-        if simdi - self._son_kontrol < self.KONTROL_ARALIK_S:
-            return
-        self._son_kontrol = simdi
-
-        neden = None
-
-        if len(self._gecmis) >= 3:
-            en_eski = self._gecmis[0]
-            en_yeni = self._gecmis[-1]
-            # Sadece sıfır olmayan başlangıç mesafesiyle karşılaştır
-            if en_eski > 0 and en_yeni > en_eski - self.MIN_AZALMA_M:
-                neden = (f"RTL takılı: {en_eski:.0f}m → {en_yeni:.0f}m "
-                         f"(beklenen azalma yok)")
-
-        # Batarya telemetrisi henüz gelmediyse (-1 veya 0) bu kontrolü atla
-        if 0 < batarya_yuzde <= self.BAT_KRITIK_YZD:
-            menzil_m = (batarya_yuzde / 100.0) * 44.4 / 10.0 * 1000 * 0.6
-            if uzaklik > menzil_m:
-                neden = (f"Batarya %{batarya_yuzde} ama mesafe {uzaklik:.0f}m "
-                         f"> menzil {menzil_m:.0f}m")
-
-        if gps_fix < 3:
-            neden = f"GPS fix kaybı (fix={gps_fix})"
-
-        if ekf_hata > 0.8:
-            neden = f"EKF hata yüksek ({ekf_hata:.2f})"
-
-        if neden:
-            self._tetiklendi = True
-            self._aktif      = False
-            self._cb(neden)
-
-    def durdur(self):
-        self._aktif = False
-
-
-# ── Stiller ──────────────────────────────────────────────────────────────────
-
-KOYU_TEMA = """
-QMainWindow, QWidget { background-color: #0d1b2a; color: #c8d8e8; }
-QTabWidget::pane { border: 1px solid #2a4060; }
-QTabBar::tab {
-    background: #0a1520; color: #7eb8e0; padding: 8px 20px;
-    border: 1px solid #2a4060; border-bottom: none;
-}
-QTabBar::tab:selected { background: #1a3050; color: #ffffff; }
-QGroupBox {
-    border: 1px solid #2a4060; border-radius: 6px;
-    margin-top: 8px; font-weight: bold; color: #7eb8e0;
-}
-QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
-QPushButton {
-    background-color: #1a3050; color: #c8d8e8;
-    border: 1px solid #2a4060; border-radius: 4px;
-    padding: 6px 12px; font-size: 11px;
-}
-QPushButton:hover { background-color: #2a4a70; }
-QPushButton:pressed { background-color: #0a2040; }
-QPushButton:disabled { background-color: #0a1520; color: #445566; }
-QLineEdit, QTextEdit {
-    background-color: #0a1520; color: #c8d8e8;
-    border: 1px solid #2a4060; border-radius: 4px; padding: 4px;
-}
-QTableWidget {
-    background-color: #0a1520; color: #c8d8e8;
-    border: 1px solid #2a4060; gridline-color: #1a3050;
-}
-QTableWidget::item:selected { background-color: #1a4060; }
-QHeaderView::section {
-    background-color: #0d2040; color: #7eb8e0;
-    border: 1px solid #2a4060; padding: 4px; font-weight: bold;
-}
-QProgressBar {
-    background-color: #0a1520; border: 1px solid #2a4060;
-    border-radius: 4px; text-align: center; color: #c8d8e8;
-}
-QProgressBar::chunk { background-color: #1a6faf; border-radius: 3px; }
-QLabel { color: #c8d8e8; }
-QStatusBar { background-color: #0a1520; color: #7eb8e0; }
-"""
-
-ACİL_STILI = """
-QPushButton {
-    background-color: #7b1414; color: #ffffff;
-    border: 1px solid #b22222; border-radius: 4px;
-    padding: 8px 16px; font-weight: bold; font-size: 12px;
-}
-QPushButton:hover { background-color: #b22222; }
-"""
-
-BAĞLAN_STILI = """
-QPushButton {
-    background-color: #1a5c2a; color: #ffffff;
-    border: 1px solid #2e8b57; border-radius: 4px;
-    padding: 6px 16px; font-weight: bold;
-}
-QPushButton:hover { background-color: #2e8b57; }
-"""
-
-UYARI_STILI = "background-color: #7b1414; color: white; font-weight: bold; padding: 4px;"
+from rtl_monitor import RtlIzleyici
+from splash_screen import SplashEkrani
+from ui_theme import ACİL_STILI, BAĞLAN_STILI, KOYU_TEMA, UYARI_STILI
 
 # ── Harita HTML (Leaflet.js) ──────────────────────────────────────────────────
 
@@ -202,21 +81,34 @@ HARITA_HTML = """<!DOCTYPE html>
   #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
   #toolbar {
     position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
-    background: rgba(13,27,42,0.88);
-    display: flex; align-items: center; gap: 6px;
-    padding: 5px 8px; border-bottom: 1px solid #2a4060;
+    background: rgba(13,27,42,0.92);
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px 6px; border-bottom: 1px solid #2a4060; height: 36px;
   }
-  #toolbar button {
+  #toolbar button, .grp-btn {
     background: #1a3050; color: #c8d8e8; border: 1px solid #2a4060;
-    border-radius: 4px; padding: 5px 13px; cursor: pointer; font-size: 14px;
+    border-radius: 4px; padding: 3px 10px; cursor: pointer; font-size: 12px; height: 28px;
   }
-  #toolbar button:hover { background: #2a4060; }
+  #toolbar button:hover, .grp-btn:hover { background: #2a4060; }
   #toolbar button.green { background: #1a5c2a; border-color: #2a8c3a; }
-  #toolbar button.green:hover { background: #2a6c3a; }
-  #toolbar button.red { background: #7b1414; border-color: #b02020; }
-  #toolbar button.red:hover { background: #9b1a1a; }
+  #toolbar button.red   { background: #7b1414; border-color: #b02020; }
   #toolbar button:disabled { opacity: 0.4; cursor: default; }
-  #konum { margin-left: auto; color: #7eb8e0; font-size: 14px; white-space: nowrap; }
+  #konum { margin-left: auto; color: #7eb8e0; font-size: 11px; white-space: nowrap; }
+  /* Dropdown grupları */
+  .grp { position: relative; display: inline-block; }
+  .grp-menu {
+    display: none; position: absolute; top: 30px; left: 0; z-index: 2000;
+    background: #0d1b2a; border: 1px solid #2a4060; border-radius: 4px;
+    min-width: 160px; padding: 4px 0; box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+  }
+  .grp:hover .grp-menu { display: block; }
+  .grp-menu button {
+    display: block; width: 100%; text-align: left;
+    background: none; border: none; color: #c8d8e8;
+    padding: 6px 14px; cursor: pointer; font-size: 12px; border-radius: 0;
+  }
+  .grp-menu button:hover { background: #1a3050; }
+  .grp-menu hr { border: none; border-top: 1px solid #2a4060; margin: 3px 0; }
   #durum {
     position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
     z-index: 1000; background: rgba(13,27,42,0.88);
@@ -239,39 +131,64 @@ HARITA_HTML = """<!DOCTYPE html>
 <body>
 <div id="map"></div>
 <div id="toolbar">
-    <select id="katmanSecici" onchange="katmanDegistir(this.value)"
-      style="background:#1a2a3a;color:#7eb8e0;border:1px solid #2a4060;border-radius:3px;
-             padding:3px 8px;font-size:12px;cursor:pointer;height:28px;"
-      title="Harita türünü değiştir">
-      <option value="uydu">&#128752; Uydu</option>
-      <option value="hibrit">&#127758; Hibrit</option>
-      <option value="sokak">&#128506; Sokak</option>
-      <option value="topo">&#9968; Kontur</option>
-      <option value="gece">&#127761; Gece</option>
-    </select>
-    <button onclick="window.location.href='gcs://ucus-yolu-temizle'">U&ccedil;u&#351; Yolunu Temizle</button>
-    <button class="green" id="analizBtn" onclick="window.location.href='gcs://guvenli-inis-baslat'">G&uuml;venli &#304;ni&#351; Analizi</button>
-    <button onclick="window.location.href='gcs://analiz-temizle'">Analizi Temizle</button>
-    <button class="red" id="inisBtn" disabled onclick="window.location.href='gcs://guvenli-inise-git'">&#128680; G&uuml;venli &#304;ni&#351;e Git</button>
-    <button id="rallyBtn" style="background:#1a3c6a;border-color:#2a5c9a;" onclick="window.location.href='gcs://rally-yukle'" title="En iyi 5 g&uuml;venli noktay&#305; ArduPilot Rally Point olarak y&uuml;kle (Katman 2)">&#128225; Rally Y&uuml;kle</button>
-    <button id="fenceBtn" style="background:#2a1a4a;border-color:#6a3a9a;" onclick="window.location.href='gcs://fence-yukle'" title="U&ccedil;u&#351; alan&#305; bounding box'&#305;ndan AC_Fence polygon y&uuml;kle -- ihlalde RTL">&#128274; Fence Y&uuml;kle</button>
-    <button id="fenceEditBtn" style="background:#2a1a4a;border-color:#6a3a9a;" onclick="fenceToggle()" title="Haritada tiklayarak fence polygon ciz">&#128312; Fence Ciz</button>
-    <button style="background:#3a0a4a;border-color:#aa00ff;" onclick="fenceBitir()" title="Cizilen fence polygon'u drone'a gondermek icin hazirladi">&#10003; Fence Bitir</button>
-    <button style="background:#2a1a4a;border-color:#cc55ff;" onclick="window.location.href='gcs://fence-polygon-yukle'" title="Haritada cizilen polygon'u ArduPilot'a FENCE_POINT protokoluyle yukle">&#9989; Polygon Yukle</button>
-    <button style="background:#1a001a;border-color:#6a006a;" onclick="fenceTemizle()" title="Fence cizimini temizle">&#128465; Fence Sil</button>
-    <button id="gridBtn" style="background:#1a3050;border-color:#2a6060;" onclick="gridToggle()" title="Alanı fareyle ciz → paralel tarama WP'leri otomatik olusturulur">&#128196; Grid</button>
-    <button id="wpBtn" style="background:#1a2a3a;border-color:#b8860b;" onclick="wpToggle()" title="Haritaya tikla → waypoint ekle | Tekrar tıkla → modu kapat | Sag tik markera → sil">&#128205; WP Ekle</button>
-    <button style="background:#1a3a1a;border-color:#4caf50;" onclick="window.location.href='gcs://wp-yukle'" title="Waypointleri drone'a yukle ve OTOMATİK moda gec">&#9654; Gorevi Yukle</button>
-    <button style="background:#3a1a1a;border-color:#f44336;" onclick="window.location.href='gcs://wp-oku'" title="Drone'daki waypointleri oku ve haritada goster">&#11015; Drone'dan Oku</button>
-    <button style="background:#2a2a2a;border-color:#666;" onclick="wpTemizle();window.location.href='gcs://wp-temizle'" title="Tum waypointleri sil">&#128465; WP Temizle</button>
-    <button id="cizBtn" style="background:#1a3050;border-color:#2a6040;" onclick="cizimBaslat()" title="Haritada ucus alanini faresiyle ciz, sonra terrain otomatik indirilir">&#9999; Alan Ciz</button>
-    <button id="alanHazirlaBtn" style="background:#1a3a2a;border-color:#3a8a5a;" onclick="window.location.href='gcs://alan-hazirla'" title="Mevcut GPS konumu icin terrain verisini yeniden indir ve hazirla">&#128205; Alani Yenile</button>
-    <button id="droneGitBtn" style="background:#2a1a1a;border-color:#8a3a2a;" onclick="window.location.href='gcs://drone-git'" title="Haritayi drone konumuna odakla">&#127989; Drone</button>
-    <span id="konum">Konum: --</span>
+  <!-- Katman seçici -->
+  <select id="katmanSecici" onchange="katmanDegistir(this.value)"
+    style="background:#1a2a3a;color:#7eb8e0;border:1px solid #2a4060;
+           border-radius:3px;padding:2px 6px;font-size:11px;height:28px;cursor:pointer;">
+    <option value="uydu">&#128752; Uydu</option>
+    <option value="hibrit">&#127758; Hibrit</option>
+    <option value="sokak">&#128506; Sokak</option>
+    <option value="topo">&#9968; Kontur</option>
+    <option value="gece">&#127761; Gece</option>
+  </select>
+
+  <!-- Drone odakla + yol temizle — sık kullanılan, doğrudan -->
+  <button onclick="window.location.href='gcs://drone-git'">&#127988; Drone</button>
+  <button onclick="window.location.href='gcs://ucus-yolu-temizle'">Yol Sil</button>
+
+  <!-- WP grubu -->
+  <div class="grp">
+    <button class="grp-btn">&#128205; WP &#9662;</button>
+    <div class="grp-menu">
+      <button id="wpBtn" onclick="wpToggle()">&#9998; WP Ekle (haritadan)</button>
+      <button id="gridBtn" onclick="gridToggle()">&#128196; Grid Tara</button>
+      <button onclick="window.location.href='gcs://wp-yukle'">&#9654; Gorevi Yukle</button>
+      <button onclick="window.location.href='gcs://wp-oku'">&#11015; Drone'dan Oku</button>
+      <button onclick="wpTemizle();window.location.href='gcs://wp-temizle'">&#128465; WP Temizle</button>
+    </div>
+  </div>
+
+  <!-- Fence grubu -->
+  <div class="grp">
+    <button class="grp-btn">&#128274; Fence &#9662;</button>
+    <div class="grp-menu">
+      <button id="fenceEditBtn" onclick="fenceToggle()">&#128312; Fence Ciz</button>
+      <button onclick="fenceBitir()">&#10003; Fence Bitir</button>
+      <button id="fenceBtn" onclick="window.location.href='gcs://fence-yukle'">&#128274; Fence Yukle</button>
+      <button onclick="window.location.href='gcs://fence-polygon-yukle'">&#9989; Polygon Yukle</button>
+      <button onclick="fenceTemizle()">&#128465; Fence Sil</button>
+    </div>
+  </div>
+
+  <!-- Analiz grubu -->
+  <div class="grp">
+    <button class="grp-btn">&#128269; Analiz &#9662;</button>
+    <div class="grp-menu">
+      <button id="analizBtn" onclick="window.location.href='gcs://guvenli-inis-baslat'">&#9989; Guvenli Inis Analizi</button>
+      <button onclick="window.location.href='gcs://analiz-temizle'">Analizi Temizle</button>
+      <button id="inisBtn" disabled onclick="window.location.href='gcs://guvenli-inise-git'">&#128680; Guvenli Inise Git</button>
+      <hr/>
+      <button id="rallyBtn" onclick="window.location.href='gcs://rally-yukle'">&#128225; Rally Yukle</button>
+      <button id="cizBtn" onclick="cizimBaslat()">&#9999; Alan Ciz</button>
+      <button id="alanHazirlaBtn" onclick="window.location.href='gcs://alan-hazirla'">&#128205; Alani Yenile</button>
+    </div>
+  </div>
+
+  <span id="konum" style="margin-left:auto;color:#7eb8e0;font-size:11px;white-space:nowrap;">--</span>
 </div>
 <div id="durum"></div>
 <script>
-var map = L.map('map', {zoomControl: true}).setView([39.9, 32.8], 6);
+var map = L.map('map', {zoomControl: true}).setView([40.9923, 29.1244], 13);
 var _ERR_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 var _ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
 // Sadece URL konfigürasyonları — L.tileLayer() seçilince oluşturulur (hafıza tasarrufu)
@@ -300,6 +217,32 @@ function katmanDegistir(isim) {
   if (sel) sel.value = isim;
 }
 katmanDegistir('uydu');   // başlangıçta sadece uydu yükle
+
+// ── Harita boş alan sağ tık menüsü ──────────────────────────────────────────
+var _sagTikPopup = null;
+function _sagTikMenuKapat() {
+  if (_sagTikPopup) { map.closePopup(_sagTikPopup); _sagTikPopup = null; }
+}
+map.on('contextmenu', function(e) {
+  _sagTikMenuKapat();
+  var lat = e.latlng.lat.toFixed(7);
+  var lon = e.latlng.lng.toFixed(7);
+  var icerik =
+    '<div style="background:#0d1b2a;border:1px solid #2a4060;border-radius:4px;'
+    + 'padding:4px 0;min-width:160px;font-size:12px;font-family:sans-serif;">'
+    + '<div style="padding:3px 10px;color:#7eb8e0;font-size:10px;border-bottom:1px solid #2a4060;">'
+    + lat + ', ' + lon + '</div>'
+    + '<div style="cursor:pointer;padding:6px 12px;color:#80cbc4;"'
+    + ' onmouseover="this.style.background=\'#1a3050\'" onmouseout="this.style.background=\'\'"'
+    + ' onclick="_sagTikMenuKapat();window.location.href=\'gcs://guided-git?lat=' + lat + '&lon=' + lon + '\'">&#128681; Buraya git (GUIDED)</div>'
+    + '<div style="cursor:pointer;padding:6px 12px;color:#a5d6a7;"'
+    + ' onmouseover="this.style.background=\'#1a3050\'" onmouseout="this.style.background=\'\'"'
+    + ' onclick="_sagTikMenuKapat();window.location.href=\'gcs://wp-ekle-koordinat?lat=' + lat + '&lon=' + lon + '\'">&#128205; WP Ekle</div>'
+    + '</div>';
+  _sagTikPopup = L.popup({closeButton:false, offset:[0,0], className:'sagTikPopup'})
+    .setLatLng(e.latlng).setContent(icerik).openOn(map);
+});
+map.on('click', function() { _sagTikMenuKapat(); });
 
 var droneIcon = L.divIcon({
   html: '<div style="width:14px;height:14px;background:#f44336;border:2px solid white;border-radius:50%;"></div>',
@@ -596,6 +539,16 @@ function wpToggle() {
 // Varsayılan irtifa — Python spinbox'tan güncellenir
 var _wpDefAlt = 50;
 function wpDefAltGuncelle(alt) { _wpDefAlt = alt; }
+
+// Dışarıdan (sağ tık menüsü veya Python) WP eklemek için
+function wpEkle(lat, lon, alt) {
+  var wp = {lat: lat, lon: lon, alt: alt || _wpDefAlt, komut: 'NAV_WAYPOINT'};
+  wpListesi.push(wp);
+  _wpMarkerEkle(wpListesi.length - 1);
+  _wpYoluGuncelle();
+  _wpTabloGonder();
+  durumGoster('WP ' + wpListesi.length + ' eklendi — ' + lat.toFixed(5) + ', ' + lon.toFixed(5));
+}
 
 // Harita tıklaması — WP ekle (cizim modu veya wp modu)
 map.on('click', function(e) {
@@ -971,7 +924,7 @@ var _TILE_CFG = {
   gece:  {url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',              attr:'CartoDB', zoom:19}
 };
 var map = L.map('map', {zoomControl:true, attributionControl:false, preferCanvas:true})
-           .setView([39.9, 32.8], 6);
+           .setView([40.9923, 29.1244], 13);
 var _aktifKatman = null;
 
 function katmanDegistir(isim) {
@@ -1042,339 +995,37 @@ function boyutDuzelt() {
 </html>"""
 
 
-# ── Harita sayfa sınıfı (gcs:// URL'lerini yakalar) ──────────────────────────
-
 if HARITA_MEVCUT:
-    class HaritaSayfa(QWebEnginePage):
-        def __init__(self, gcs_pencere, parent=None):
-            super().__init__(parent)
-            self._gcs = gcs_pencere
+    from map_bridge import HaritaSayfa, MiniHaritaSayfa
+else:
+    HaritaSayfa = MiniHaritaSayfa = None
 
-        def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
-            print(f"js: {message} ({sourceID}:{lineNumber})")
-
-        def acceptNavigationRequest(self, url, nav_type, is_main_frame):
-            if url.scheme() == 'gcs':
-                eylem = url.host()
-                def _defer(fn):
-                    def _run():
-                        try:
-                            fn()
-                        except Exception as exc:
-                            print(f"[Harita] Aksiyon hatasi: {exc}")
-                    QTimer.singleShot(0, _run)
-
-                if eylem == 'ucus-yolu-temizle':
-                    _defer(self._gcs._harita_yol_temizle)
-                elif eylem == 'guvenli-inis-baslat':
-                    _defer(self._gcs._guvenli_inis_baslat)
-                elif eylem == 'analiz-temizle':
-                    _defer(self._gcs._guvenli_noktalar_temizle)
-                elif eylem == 'guvenli-inise-git':
-                    _defer(self._gcs._guvenli_inise_git)
-                elif eylem == 'rally-yukle':
-                    _defer(self._gcs._rally_yukle_baslat)
-                elif eylem == 'fence-yukle':
-                    _defer(self._gcs._fence_yukle_baslat)
-                elif eylem == 'alan-hazirla':
-                    def _alan_hazirla():
-                        lat = self._gcs._guncel_lat
-                        lon = self._gcs._guncel_lon
-                        if lat != 0.0:
-                            self._gcs._alan_hazirlik_yapildi = False
-                            self._gcs._alan_karar = None   # yeniden indir → GPS trigger çalışsın
-                            self._gcs._alan_hazirligini_baslat(lat, lon)
-                        else:
-                            self._gcs._mesaj_ekle(3, "GPS fix yok — once GPS kilidini bekle.")
-                    _defer(_alan_hazirla)
-                elif eylem == 'drone-git':
-                    def _drone_git():
-                        lat = self._gcs._guncel_lat
-                        lon = self._gcs._guncel_lon
-                        if lat != 0.0:
-                            self._gcs._js(f"map.setView([{lat},{lon}], 14);")
-                        else:
-                            self._gcs._mesaj_ekle(3, "GPS fix yok — drone konumu bilinmiyor.")
-                    _defer(_drone_git)
-                elif eylem == 'wp-guncelle':
-                    # JS'den gelen waypoint listesi → Python state + tablo güncelle
-                    try:
-                        raw = QUrlQuery(url).queryItemValue('data')
-                        import urllib.parse as _up
-                        self._gcs._wp_listesi = json.loads(_up.unquote(raw))
-                        QTimer.singleShot(0, self._gcs._wp_tablo_yenile)
-                    except Exception:
-                        pass
-                elif eylem == 'wp-yukle':
-                    _defer(self._gcs._wp_yukle_baslat)
-                elif eylem == 'wp-oku':
-                    _defer(self._gcs._wp_oku_baslat)
-                elif eylem == 'wp-temizle':
-                    self._gcs._wp_listesi = []
-                    QTimer.singleShot(0, self._gcs._wp_tablo_yenile)
-                    self._gcs._mavlink.mission_temizle()
-                elif eylem == 'alan-cizildi':
-                    def _alan_cizildi():
-                        try:
-                            q = QUrlQuery(url)
-                            lat1 = float(q.queryItemValue('lat1'))
-                            lon1 = float(q.queryItemValue('lon1'))
-                            lat2 = float(q.queryItemValue('lat2'))
-                            lon2 = float(q.queryItemValue('lon2'))
-                            lat_min = min(lat1, lat2)
-                            lat_max = max(lat1, lat2)
-                            lon_min = min(lon1, lon2)
-                            lon_max = max(lon1, lon2)
-                            self._gcs._alan_hazirlik_yapildi = True
-                            self._gcs._alan_thread_baslat(
-                                lat_min, lat_max, lon_min, lon_max,
-                                kaynak="harita cizimi"
-                            )
-                        except ValueError as _err:
-                            self._gcs._mesaj_ekle(3, f"Alan cizimi: koordinat okunamadi ({_err}).")
-                    _defer(_alan_cizildi)
-                elif eylem == 'fence-polygon-yukle':
-                    _defer(self._gcs._fence_polygon_yukle)
-                elif eylem == 'fence-cizildi':
-                    # JS'den çizilen fence polygon → Python state'e kaydet
-                    try:
-                        import urllib.parse as _up
-                        raw = QUrlQuery(url).queryItemValue('data')
-                        noktalar = json.loads(_up.unquote(raw))
-                        self._gcs._fence_noktalar = noktalar
-                        self._gcs._mesaj_ekle(6,
-                            f"🔷 Fence polygon hazır: {len(noktalar)} köşe — "
-                            "'Fence Yükle' ile drone'a gönderin.")
-                    except Exception as _fe:
-                        self._gcs._mesaj_ekle(3, f"Fence çizimi: veri okunamadı ({_fe}).")
-                elif eylem == 'grid-uret':
-                    def _grid_uret():
-                        try:
-                            q = QUrlQuery(url)
-                            lat1 = float(q.queryItemValue('lat1'))
-                            lon1 = float(q.queryItemValue('lon1'))
-                            lat2 = float(q.queryItemValue('lat2'))
-                            lon2 = float(q.queryItemValue('lon2'))
-                            # Grid ayar dialogu — ana thread'de aç
-                            self._gcs._grid_ayar_ve_uret(
-                                min(lat1,lat2), max(lat1,lat2),
-                                min(lon1,lon2), max(lon1,lon2)
-                            )
-                        except Exception as _ge:
-                            self._gcs._mesaj_ekle(3, f"Grid hatası: {_ge}")
-                    _defer(_grid_uret)
-                return False  # gezinme yapma
-            return super().acceptNavigationRequest(url, nav_type, is_main_frame)
-
-    class MiniHaritaSayfa(QWebEnginePage):
-        """Mini-harita için minimal sayfa — hiçbir gcs:// URL'sini işlemez."""
-        def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
-            # Tile 404 ve diğer ağ hatalarını bastır
-            if 'Failed to load' not in message and 'net::ERR' not in message:
-                pass  # sessiz
-
-        def acceptNavigationRequest(self, url, nav_type, is_main_frame):
-            if url.scheme() == 'gcs':
-                return False  # mini-haritadan gcs:// callback gelmez
-            return super().acceptNavigationRequest(url, nav_type, is_main_frame)
-
-
-# ── Arkaplan analiz thread'i ──────────────────────────────────────────────────
-
-class _RallyYuklemeThread(QThread):
-    """En iyi N rally noktasını arka planda ArduPilot'a yükler."""
-    tamamlandi = Signal(bool, int)   # (basarili, nokta_sayisi)
-    hata       = Signal(str)
-
-    def __init__(self, npz_dosya: str, baglanti_dizesi: str,
-                 merkez_lat: float = 0.0, merkez_lon: float = 0.0, n: int = 5):
-        super().__init__()
-        self.npz     = npz_dosya
-        self.dize    = baglanti_dizesi
-        self.m_lat   = merkez_lat
-        self.m_lon   = merkez_lon
-        self.n       = n
-
-    def run(self):
-        try:
-            from rally_yukle import en_iyi_noktalar, rally_yukle
-            noktalar = en_iyi_noktalar(
-                self.npz, n=self.n,
-                merkez_lat=self.m_lat if self.m_lat != 0.0 else None,
-                merkez_lon=self.m_lon if self.m_lon != 0.0 else None,
-            )
-            basarili = rally_yukle(noktalar, baglanti_dizesi=self.dize)
-            self.tamamlandi.emit(basarili, len(noktalar))
-        except Exception as e:
-            self.hata.emit(str(e))
-
-
-class _FenceYuklemeThread(QThread):
-    """alan_verisi.npz bounds'ından AC_Fence polygon arka planda yükler."""
-    tamamlandi = Signal(bool)   # basarili
-    hata       = Signal(str)
-
-    def __init__(self, npz_dosya: str, baglanti_dizesi: str,
-                 alt_max: float = 120.0, fence_action: int = 1):
-        super().__init__()
-        self.npz          = npz_dosya
-        self.dize         = baglanti_dizesi
-        self.alt_max      = alt_max
-        self.fence_action = fence_action
-
-    def run(self):
-        try:
-            from fence_yukle import fence_yukle_npz
-            basarili = fence_yukle_npz(
-                self.npz, self.dize,
-                alt_max=self.alt_max,
-                fence_action=self.fence_action,
-            )
-            self.tamamlandi.emit(basarili)
-        except Exception as e:
-            self.hata.emit(str(e))
-
-
-class TerrainAnalizThread(QThread):
-    tamamlandi = Signal(object)   # AnalizSonucu
-    hata       = Signal(str)
-
-    def __init__(self, lat, lon, batarya_yuzde,
-                 ruzgar_ms: float = 0.0, ruzgar_yonu_derece: float = 0.0,
-                 min_hucre_volt: float = 0.0):
-        super().__init__()
-        self.lat = lat
-        self.lon = lon
-        self.batarya_yuzde = batarya_yuzde
-        self.ruzgar_ms = ruzgar_ms
-        self.ruzgar_yonu_derece = ruzgar_yonu_derece
-        self.min_hucre_volt = min_hucre_volt
-
-    def run(self):
-        try:
-            from terrain_analiz import GuvenliInisAnalizci   # srtm yükü burada — bg thread
-            analizci = GuvenliInisAnalizci()
-            sonuc = analizci.analiz_et(
-                self.lat, self.lon, self.batarya_yuzde,
-                ruzgar_ms=self.ruzgar_ms,
-                ruzgar_yonu_derece=self.ruzgar_yonu_derece,
-                min_hucre_volt=self.min_hucre_volt,
-            )
-            self.tamamlandi.emit(sonuc)
-        except Exception as e:
-            self.hata.emit(str(e))
-
-
-class TerrainProfilThread(QThread):
-    """
-    WP yolu boyunca SRTM'den zemin yüksekliklerini arka planda çeker.
-    Her WP segmentinde 5 nokta örnekler → mesafe ve yükseklik listesi döndürür.
-    """
-    tamamlandi = Signal(list, list)   # (mesafeler_m, elevasyonlar_m)
-
-    def __init__(self, wp_listesi: list, mesafeler: list):
-        super().__init__()
-        self._wp = list(wp_listesi)
-        self._mes = list(mesafeler)
-
-    def run(self):
-        try:
-            import srtm as _srtm
-            veri = _srtm.get_data()
-            t_mes: list = []
-            t_alt: list = []
-            n = len(self._wp)
-            for i in range(n):
-                w0 = self._wp[i]
-                w1 = self._wp[i + 1] if i + 1 < n else None
-                steps = 5 if w1 else 1
-                for s in range(steps):
-                    f = s / steps
-                    lat = w0['lat'] + (w1['lat'] - w0['lat']) * f if w1 else w0['lat']
-                    lon = w0['lon'] + (w1['lon'] - w0['lon']) * f if w1 else w0['lon']
-                    elev = veri.get_elevation(lat, lon)
-                    if elev is None:
-                        elev = 0
-                    m_val = (self._mes[i] + (self._mes[i + 1] - self._mes[i]) * f
-                             if w1 and i + 1 < len(self._mes) else self._mes[i])
-                    t_mes.append(m_val)
-                    t_alt.append(float(elev))
-            self.tamamlandi.emit(t_mes, t_alt)
-        except Exception:
-            pass   # SRTM ağ hatası veya import hatası — sessizce geç
-
-
-class AlanHazirlikThread(QThread):
-    """
-    GPS fix alındığında arka planda alan_verisi.npz üretir.
-    ucus_alani_hazirla.py'deki fonksiyonları import ederek çalışır —
-    kullanıcı CLI'a dokunmak zorunda kalmaz.
-    """
-    ilerleme   = Signal(str)   # mesaj log için
-    tamamlandi = Signal(str)   # üretilen npz dosya yolu
-    hata       = Signal(str)   # hata mesajı
-
-    def __init__(self, lat_min: float, lat_max: float,
-                 lon_min: float, lon_max: float):
-        super().__init__()
-        self.lat_min = lat_min
-        self.lat_max = lat_max
-        self.lon_min = lon_min
-        self.lon_max = lon_max
-
-    def run(self):
-        try:
-            import tempfile as _tmp
-            from ucus_alani_hazirla import (
-                dem_indir, dem_oku, egim_hesapla, guvenli_noktalari_bul, kaydet
-            )
-
-            lat_min = self.lat_min
-            lat_max = self.lat_max
-            lon_min = self.lon_min
-            lon_max = self.lon_max
-
-            self.ilerleme.emit(
-                f"Terrain: DEM indiriliyor "
-                f"({lat_min:.2f}–{lat_max:.2f}, {lon_min:.2f}–{lon_max:.2f})…"
-            )
-            # dem_indir bir GeoTIFF dosya yolu döndürür; geçici TIF kullan
-            with _tmp.NamedTemporaryFile(suffix=".tif", delete=False) as _tf:
-                tif_yolu = _tf.name
-            dem_indir(lat_min, lat_max, lon_min, lon_max, cikti=tif_yolu)
-
-            self.ilerleme.emit("Terrain: DEM okunuyor…")
-            dem, transform, bounds = dem_oku(tif_yolu)
-
-            self.ilerleme.emit("Terrain: Eğim hesaplanıyor…")
-            egim = egim_hesapla(dem)
-
-            self.ilerleme.emit("Terrain: Güvenli noktalar belirleniyor…")
-            noktalar = guvenli_noktalari_bul(egim, transform)
-
-            # kaydet() doğru NPZ formatını (noktalar_json 1-elemanlı dizi) üretir
-            cikti = os.path.join(os.path.dirname(__file__), "alan_verisi.npz")
-            kaydet(egim, dem, transform, bounds, noktalar, cikti=cikti)
-
-            # Geçici TIF temizle
-            try:
-                os.remove(tif_yolu)
-            except OSError:
-                pass
-            self.tamamlandi.emit(cikti)
-        except Exception as exc:
-            self.hata.emit(f"Terrain hazırlık hatası: {exc}")
+from workers import (
+    _FenceYuklemeThread,
+    _RallyYuklemeThread,
+    AlanHazirlikThread,
+    TerrainAnalizThread,
+    TerrainProfilThread,
+)
 
 
 # ── Ana Pencere ───────────────────────────────────────────────────────────────
 
 class AnaPencere(QMainWindow):
+    _BADGE = "border-radius:3px; padding:2px 8px; font-size:10px;"
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Doğuş ÜNİ – Türkçe Yer İstasyonu v0.2")
         self.resize(1366, 800)
         self.setMinimumSize(900, 600)
         self.setStyleSheet(KOYU_TEMA)
+
+        # Tile cache proxy sunucusunu başlat
+        from tile_cache import _TileHandler
+        _TileHandler._harita_html_fn = _harita_html_olustur
+        self._tile_sunucu = TileCacheSunucusu()
+        self._tile_sunucu.start()
 
         self._mavlink = MAVLinkBaglantisi()
         self._sinyalleri_bagla()
@@ -1561,13 +1212,23 @@ class AnaPencere(QMainWindow):
         m.kalp_atisi.connect(self._hb_guncelle)
         m.batarya_guncellendi.connect(self._batarya_guncelle)
         m.vfr_guncellendi.connect(self._vfr_guncelle)
+        m.vfr_guncellendi.connect(self._gauge_vfr_guncelle)
+        m.batarya_guncellendi.connect(self._gauge_bat_guncelle)
+        m.gps_guncellendi.connect(self._gauge_gps_guncelle)
         m.gps_guncellendi.connect(self._gps_guncelle)
+        m.gps_guncellendi.connect(self._prearm_gps_guncelle)
         m.tutum_guncellendi.connect(self._tutum_guncelle)
         m.ruzgar_guncellendi.connect(self._ruzgar_guncelle)
         m.lidar_guncellendi.connect(self._lidar_guncelle)
         m.imu_sicakligi.connect(self._imu_guncelle)
+        m.imu_sicakligi.connect(self._prearm_imu_guncelle)
         m.durum_mesaji.connect(self._mesaj_ekle)
+        m.durum_mesaji.connect(self._prearm_mesaj_isle)
         m.ekf_durumu.connect(self._ekf_guncelle)
+        m.ekf_durumu.connect(self._prearm_ekf_guncelle)
+        m.batarya_guncellendi.connect(self._prearm_batarya_guncelle)
+        m.rc_guncellendi.connect(self._prearm_rc_guncelle)
+        m.kalp_atisi.connect(self._prearm_arm_guncelle)
         m.vibrasyon_guncellendi.connect(self._vibrasyon_guncelle)
         m.parametre_guncellendi.connect(self._param_guncelle)
         m.parametre_tamamlandi.connect(self._param_tamam)
@@ -1863,10 +1524,12 @@ class AnaPencere(QMainWindow):
             "QTabBar::tab:hover { background:#1a2a3a; }"
         )
         tabs.addTab(self._kontrol_serit(),      "Kontrol")
-        tabs.addTab(self._tile_serit(),          "Degerler")
+        tabs.addTab(self._tile_serit(),          "Değerler")
+        tabs.addTab(self._gauge_sekme(),         "Göstergeler")
         tabs.addTab(self._imu_esc_sekme(),       "IMU/ESC")
         tabs.addTab(self._ucus_grafik_widget(),  "Grafik")
         tabs.addTab(self._mesaj_logu_paneli(),   "Mesaj")
+        tabs.addTab(self._prearm_sekme(),        "✅ Pre-Arm")
         return tabs
 
     def _ucus_grafik_widget(self) -> QWidget:
@@ -2296,8 +1959,8 @@ class AnaPencere(QMainWindow):
         """Zone 5 — IMU ve ESC panellerini daraltılmış QTabWidget içinde göster."""
         from PyQt5.QtWidgets import QTabWidget as _QTW
         tabs = _QTW()
-        tabs.setMaximumHeight(130)
-        tabs.setMinimumHeight(80)
+        tabs.setMaximumHeight(180)
+        tabs.setMinimumHeight(120)
         tabs.addTab(self._imu_paneli(), "IMU Sıcaklıkları")
         tabs.addTab(self._esc_paneli(), "ESC / Motor")
         return tabs
@@ -2311,6 +1974,164 @@ class AnaPencere(QMainWindow):
         self._mesaj_logu.setFont(QFont("Courier New", 9))
         duz.addWidget(self._mesaj_logu)
         return grp
+
+    def _gauge_sekme(self) -> QWidget:
+        """4 büyük gösterge: İrtifa, Hız, Batarya, GPS."""
+        w = QWidget()
+        grid = QGridLayout(w)
+        grid.setSpacing(6)
+        grid.setContentsMargins(6, 6, 6, 6)
+
+        def _gauge(baslik: str, renk: str) -> tuple:
+            kutu = QGroupBox(baslik)
+            kutu.setStyleSheet(
+                f"QGroupBox {{ border:1px solid {renk}44; border-radius:6px; "
+                f"color:{renk}; font-size:9pt; font-weight:bold; "
+                f"margin-top:8px; padding-top:4px; }}"
+                f"QGroupBox::title {{ subcontrol-origin:margin; left:8px; }}"
+            )
+            ic = QVBoxLayout(kutu)
+            ic.setContentsMargins(4, 4, 4, 4)
+            deger = QLabel("--")
+            deger.setAlignment(Qt.AlignCenter)
+            deger.setStyleSheet(
+                f"color:{renk}; font-size:22pt; font-weight:bold; background:transparent;")
+            alt = QLabel("")
+            alt.setAlignment(Qt.AlignCenter)
+            alt.setStyleSheet("color:#7eb8e0; font-size:9pt; background:transparent;")
+            ic.addWidget(deger)
+            ic.addWidget(alt)
+            return kutu, deger, alt
+
+        g_irt, self._g_irtifa_deger, self._g_irtifa_alt   = _gauge("İrtifa (m)",   "#64b5f6")
+        g_hiz, self._g_hiz_deger,    self._g_hiz_alt      = _gauge("Hız (m/s)",    "#81c784")
+        g_bat, self._g_bat_deger,    self._g_bat_alt       = _gauge("Batarya",      "#ffb74d")
+        g_gps, self._g_gps_deger,    self._g_gps_alt       = _gauge("GPS",          "#ce93d8")
+
+        grid.addWidget(g_irt, 0, 0)
+        grid.addWidget(g_hiz, 0, 1)
+        grid.addWidget(g_bat, 1, 0)
+        grid.addWidget(g_gps, 1, 1)
+        return w
+
+    def _gauge_vfr_guncelle(self, irtifa: float, hiz: float, dikey: float, uzaklik: float):
+        self._g_irtifa_deger.setText(f"{irtifa:.1f}")
+        self._g_irtifa_alt.setText(f"Dikey: {dikey:+.1f} m/s")
+        self._g_hiz_deger.setText(f"{hiz:.1f}")
+        self._g_hiz_alt.setText(f"Eve: {uzaklik:.0f} m")
+
+    def _gauge_bat_guncelle(self, volt: float, amper: float, yuzde: int):
+        self._g_bat_deger.setText(f"{volt:.1f}V")
+        txt = f"{amper:.1f}A"
+        if yuzde >= 0:
+            txt += f"  %{yuzde}"
+        self._g_bat_alt.setText(txt)
+
+    def _gauge_gps_guncelle(self, fix: int, uydu: int, lat: float, lon: float):
+        fix_ad = {0:"YOK", 1:"YOK", 2:"2D", 3:"3D", 4:"DGPS", 5:"RTK Float", 6:"RTK Fix"}
+        self._g_gps_deger.setText(fix_ad.get(fix, str(fix)))
+        self._g_gps_alt.setText(f"{uydu} uydu")
+
+    def _prearm_sekme(self) -> QWidget:
+        """Uçuş öncesi kontrol listesi — MAVLink verilerine göre otomatik güncellenir."""
+        w = QWidget()
+        ana = QVBoxLayout(w)
+        ana.setSpacing(4)
+        ana.setContentsMargins(6, 6, 6, 6)
+
+        baslik = QLabel("Uçuş Öncesi Kontroller")
+        baslik.setFont(QFont("Arial", 10, QFont.Bold))
+        baslik.setStyleSheet("color: #7ec8e3;")
+        ana.addWidget(baslik)
+
+        izgara = QGridLayout()
+        izgara.setSpacing(4)
+
+        def _satir(ad: str, satir: int):
+            etiket = QLabel(ad)
+            etiket.setStyleSheet("color: #aab8c2; font-size: 9pt;")
+            durum = QLabel("—")
+            durum.setFixedWidth(180)
+            durum.setStyleSheet("color: #888; font-size: 9pt; font-weight: bold;")
+            izgara.addWidget(etiket, satir, 0)
+            izgara.addWidget(durum, satir, 1)
+            return durum
+
+        self._prearm_gps     = _satir("GPS Fix",          0)
+        self._prearm_ekf     = _satir("EKF Durumu",       1)
+        self._prearm_batarya = _satir("Batarya",          2)
+        self._prearm_rc      = _satir("RC / RSSI",        3)
+        self._prearm_imu     = _satir("IMU Sıcaklığı",   4)
+        self._prearm_genel   = _satir("Genel Durum",      5)
+
+        ana.addLayout(izgara)
+
+        # ArduPilot'tan gelen pre-arm mesajları
+        ara = QLabel("ArduPilot Mesajları:")
+        ara.setStyleSheet("color: #7ec8e3; font-size: 9pt; margin-top: 4px;")
+        ana.addWidget(ara)
+        self._prearm_mesajlar = QTextEdit()
+        self._prearm_mesajlar.setReadOnly(True)
+        self._prearm_mesajlar.setMaximumHeight(70)
+        self._prearm_mesajlar.setFont(QFont("Courier New", 8))
+        self._prearm_mesajlar.setStyleSheet(
+            "background:#0a1520; color:#e0e0e0; border:1px solid #1a3050;")
+        ana.addWidget(self._prearm_mesajlar)
+        ana.addStretch()
+
+        return w
+
+    def _prearm_renk(self, durum_lbl: QLabel, metin: str, ok: bool):
+        renk = "#4caf50" if ok else "#f44336"
+        durum_lbl.setText(metin)
+        durum_lbl.setStyleSheet(f"color: {renk}; font-size: 9pt; font-weight: bold;")
+
+    def _prearm_gps_guncelle(self, fix: int, uydu: int, lat: float, lon: float):
+        ok = fix >= 3 and uydu >= 6
+        self._prearm_renk(self._prearm_gps,
+                          f"Fix {fix} / {uydu} uydu", ok)
+
+    def _prearm_ekf_guncelle(self, bayraklar: int, hata: float):
+        ok = (bayraklar & 0x01F) == 0x01F and hata < 0.5
+        self._prearm_renk(self._prearm_ekf,
+                          f"Bayrak {bayraklar:#06x} / Hata {hata:.2f}", ok)
+
+    def _prearm_batarya_guncelle(self, volt: float, amper: float, yuzde: int):
+        ok = volt > 14.0 and (yuzde < 0 or yuzde > 20)
+        gosterge = f"{volt:.1f}V"
+        if yuzde >= 0:
+            gosterge += f" / %{yuzde}"
+        self._prearm_renk(self._prearm_batarya, gosterge, ok)
+
+    def _prearm_rc_guncelle(self, rssi: int, failsafe: bool):
+        ok = rssi > 50 and not failsafe
+        self._prearm_renk(self._prearm_rc,
+                          f"RSSI {rssi}" + (" ⚠ Failsafe" if failsafe else ""), ok)
+
+    def _prearm_imu_guncelle(self, imu_no: int, sicaklik: float):
+        # IMU0'ı izle
+        if imu_no != 0:
+            return
+        ok = 30 <= sicaklik <= 65
+        self._prearm_renk(self._prearm_imu, f"IMU0: {sicaklik:.1f}°C", ok)
+
+    def _prearm_arm_guncelle(self, mod_id: int, arm: bool):
+        if arm:
+            self._prearm_renk(self._prearm_genel, "ARMED ✓", True)
+        else:
+            self._prearm_renk(self._prearm_genel, "DISARMED", False)
+
+    def _prearm_mesaj_isle(self, severity: int, metin: str):
+        # severity 0-3 arası kritik/hata — pre-arm hataları genellikle buradan gelir
+        if "PreArm" in metin or "EKF" in metin or severity <= 3:
+            renk = "#f44336" if severity <= 3 else "#ffb300"
+            self._prearm_mesajlar.append(
+                f'<span style="color:{renk}">[{severity}] {metin}</span>')
+        # Genel durumu arm durumuna göre güncelle
+        if "Arming" in metin or "Armed" in metin:
+            self._prearm_renk(self._prearm_genel, "ARMED ✓", True)
+        elif "Disarmed" in metin:
+            self._prearm_renk(self._prearm_genel, "DISARMED", False)
 
     # ── Parametre sekmesi ─────────────────────────────────────────────────────
 
@@ -2540,10 +2361,11 @@ class AnaPencere(QMainWindow):
         self._harita.setPage(sayfa)
         self._harita_hazir = False
         def _harita_yuklendi(ok):
-            self._harita_hazir = True
-            self._harita_terrain_sinir_goster()   # startup'ta NPZ varsa mavi kutu çiz
+            self._harita_hazir = ok
+            if ok:
+                self._harita_terrain_sinir_goster()
         self._harita.loadFinished.connect(_harita_yuklendi)
-        self._harita.setHtml(HARITA_HTML)
+        self._harita.setHtml(_harita_html_olustur())
         duz.addWidget(self._harita)
 
         # ── Görev özet satırı ─────────────────────────────────────────────────
@@ -2743,10 +2565,6 @@ class AnaPencere(QMainWindow):
             self._mini_harita_hazir = True
             QTimer.singleShot(350, self._mini_harita_boyut_duzelt)
             QTimer.singleShot(800, self._mini_harita_boyut_duzelt)
-            # Ana harita Chromium process'ini mini-harita yüklendikten sonra başlat —
-            # ikisi aynı anda kurulmasın, startup'taki tepe yükü ikiye bölünsün.
-            if HARITA_MEVCUT and not self._harita_tab_hazir:
-                QTimer.singleShot(150, self._harita_tab_yukle)
 
         self._mini_harita_view.loadFinished.connect(_yukle_tamamlandi)
         self._mini_harita_view.setHtml(MINI_HARITA_HTML)
@@ -2987,10 +2805,14 @@ class AnaPencere(QMainWindow):
         else:
             fix_renk = "#4caf50"   # yeşil — 3D+
         self._gps_fix_lbl.setText(f"Fix: {fix_str}")
-        self._gps_fix_lbl.setStyleSheet(f"color: {fix_renk}; font-weight: bold;")
+        if fix_renk != getattr(self, "_gps_fix_renk_son", None):
+            self._gps_fix_renk_son = fix_renk
+            self._gps_fix_lbl.setStyleSheet(f"color: {fix_renk}; font-weight: bold;")
         self._gps_uydu_lbl.setText(f"Uydu: {uydu}")
         uydu_renk = "#f44336" if uydu < 6 else ("#ffc107" if uydu < 8 else "#4caf50")
-        self._gps_uydu_lbl.setStyleSheet(f"color: {uydu_renk};")
+        if uydu_renk != getattr(self, "_gps_uydu_renk_son", None):
+            self._gps_uydu_renk_son = uydu_renk
+            self._gps_uydu_lbl.setStyleSheet(f"color: {uydu_renk};")
         self._gps_konum_lbl.setText(f"{lat:.5f}, {lon:.5f}")
         # Harita JS güncellemesi — doğrudan değil, 500 ms timer buffer'ına yaz
         self._harita_bekleyen_lat = lat
@@ -4587,14 +4409,14 @@ class AnaPencere(QMainWindow):
         if rssi == 255 or rssi == 0:
             self._rc_lbl.setText("RC: —")
             self._rc_lbl.setStyleSheet(
-                f"color:#666; background:#111; border:1px solid #2a2a2a; {_BADGE}"
+                f"color:#666; background:#111; border:1px solid #2a2a2a; {self._BADGE}"
             )
         else:
             guc = int(rssi / 254 * 100)
             renk = "#4caf50" if guc > 60 else "#ffc107" if guc > 25 else "#f44336"
             self._rc_lbl.setText(f"RC {guc}%")
             self._rc_lbl.setStyleSheet(
-                f"color:{renk}; background:#111; border:1px solid #333; {_BADGE}"
+                f"color:{renk}; background:#111; border:1px solid #333; {self._BADGE}"
             )
 
     _FENCE_TUR_TR = {
@@ -5367,158 +5189,9 @@ class AnaPencere(QMainWindow):
             if t is not None and t.isRunning():
                 t.terminate()
         self._mavlink.durdur()
+        if hasattr(self, '_tile_sunucu'):
+            self._tile_sunucu.durdur()
         super().closeEvent(event)
-
-
-# ── Açılış Ekranı ─────────────────────────────────────────────────────────────
-
-class SplashEkrani(QWidget):
-    """
-    Uygulama açılırken gösterilen tam ekran splash.
-    Yükleme adımlarını progress bar ile gösterir,
-    tamamlanınca ana pencereye geçiş sinyali verir.
-    """
-
-    tamamlandi = Signal()
-
-    _ADIMLAR = [
-        (10,  "Konfigürasyon yükleniyor…"),
-        (25,  "Arayüz bileşenleri hazırlanıyor…"),
-        (45,  "MAVLink modülü başlatılıyor…"),
-        (60,  "Terrain analiz motoru yükleniyor…"),
-        (78,  "Harita ve sensör modülleri…"),
-        (92,  "Son kontroller yapılıyor…"),
-        (100, "Hazır — hoş geldiniz!"),
-    ]
-
-    def __init__(self):
-        super().__init__()
-        self._adim_idx = 0
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._sonraki_adim)
-        self._ui_olustur()
-
-    def _ui_olustur(self):
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground, False)
-        self.setFixedSize(680, 400)
-
-        # Ortalama ekrana yerleştir
-        ekran = QApplication.primaryScreen().geometry()
-        self.move(
-            ekran.center().x() - self.width()  // 2,
-            ekran.center().y() - self.height() // 2,
-        )
-
-        # Arka plan
-        self.setStyleSheet("background-color: #0d1117;")
-
-        ana = QVBoxLayout(self)
-        ana.setContentsMargins(56, 40, 56, 36)
-        ana.setSpacing(0)
-
-        # ── Üst: logo + başlık ───────────────────────────────────────────────
-        logo_lbl = QLabel("🛸")
-        logo_lbl.setAlignment(Qt.AlignCenter)
-        logo_lbl.setStyleSheet("font-size: 60px; background: transparent;")
-        ana.addWidget(logo_lbl)
-
-        ana.addSpacing(10)
-
-        baslik = QLabel("DOĞUŞ ÜNİVERSİTESİ LÖP")
-        baslik.setAlignment(Qt.AlignCenter)
-        baslik.setFont(QFont("Segoe UI", 22, QFont.Bold))
-        baslik.setStyleSheet("color: #58a6ff; background: transparent;")
-        ana.addWidget(baslik)
-
-        altyazi = QLabel("Türkçe İnsansız Hava Aracı Yer İstasyonu")
-        altyazi.setAlignment(Qt.AlignCenter)
-        altyazi.setFont(QFont("Segoe UI", 12))
-        altyazi.setStyleSheet("color: #8b949e; background: transparent;")
-        ana.addWidget(altyazi)
-
-        ana.addSpacing(10)
-
-        ayirici = QLabel("─" * 64)
-        ayirici.setAlignment(Qt.AlignCenter)
-        ayirici.setStyleSheet("color: #21262d; background: transparent;")
-        ana.addWidget(ayirici)
-
-        ana.addSpacing(16)
-
-        # ── Orta: özellik listesi — her özellik ayrı satırda, wordwrap açık ──
-        ozellikler = QLabel(
-            "Çok Katmanlı Güvenli İniş Analizi  ·  Gerçek Zamanlı LIDAR Zemin Doğrulaması\n"
-            "RTL İzleyici & Otomatik Fallback  ·  Copernicus GLO-30 Terrain Entegrasyonu"
-        )
-        ozellikler.setAlignment(Qt.AlignCenter)
-        ozellikler.setWordWrap(True)
-        ozellikler.setFont(QFont("Segoe UI", 10))
-        ozellikler.setStyleSheet("color: #3fb950; background: transparent;")
-        ana.addWidget(ozellikler)
-
-        ana.addStretch()
-
-        # ── Alt: progress bar + durum ────────────────────────────────────────
-        self._durum_lbl = QLabel("Başlatılıyor…")
-        self._durum_lbl.setAlignment(Qt.AlignCenter)
-        self._durum_lbl.setFont(QFont("Segoe UI", 9))
-        self._durum_lbl.setStyleSheet("color: #8b949e; background: transparent;")
-        ana.addWidget(self._durum_lbl)
-
-        ana.addSpacing(8)
-
-        self._pb = QProgressBar()
-        self._pb.setRange(0, 100)
-        self._pb.setValue(0)
-        self._pb.setTextVisible(False)
-        self._pb.setFixedHeight(4)
-        self._pb.setStyleSheet("""
-            QProgressBar {
-                background: #21262d;
-                border: none;
-                border-radius: 2px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #1f6feb, stop:1 #58a6ff
-                );
-                border-radius: 2px;
-            }
-        """)
-        ana.addWidget(self._pb)
-
-        ana.addSpacing(12)
-
-        versiyon = QLabel("Sürüm 1.0  ·  2026  ·  Lisans Öğrenci Projesi")
-        versiyon.setAlignment(Qt.AlignCenter)
-        versiyon.setFont(QFont("Segoe UI", 8))
-        versiyon.setStyleSheet("color: #444c56; background: transparent;")
-        ana.addWidget(versiyon)
-
-    def goster_ve_yukle(self):
-        """Splash'ı göster, 300ms sonra yükleme adımlarını başlat."""
-        self.show()
-        QTimer.singleShot(300, lambda: self._timer.start(340))
-
-    def _sonraki_adim(self):
-        if self._adim_idx >= len(self._ADIMLAR):
-            self._timer.stop()
-            QTimer.singleShot(350, self.tamamlandi.emit)
-            return
-        yuzde, metin = self._ADIMLAR[self._adim_idx]
-        self._pb.setValue(yuzde)
-        self._durum_lbl.setText(metin)
-        self._adim_idx += 1
-
-    def paintEvent(self, event):
-        """İnce kenarlık çiz."""
-        from PyQt5.QtGui import QPainter, QPen
-        super().paintEvent(event)
-        p = QPainter(self)
-        p.setPen(QPen(QColor("#21262d"), 1))
-        p.drawRect(0, 0, self.width() - 1, self.height() - 1)
 
 
 # ── Giriş noktası ─────────────────────────────────────────────────────────────

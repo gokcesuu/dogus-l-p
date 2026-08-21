@@ -186,8 +186,8 @@ class SicaklikGostergesi(QLabel):
         super().__init__(parent)
         self._imu_no = imu_no
         self.setAlignment(Qt.AlignCenter)
-        self.setFont(QFont("Courier", 10))
-        self.setMinimumWidth(110)
+        self.setFont(QFont("Courier New", 9))
+        self.setMinimumWidth(180)
         self.guncelle(None)
 
     def guncelle(self, sicaklik):

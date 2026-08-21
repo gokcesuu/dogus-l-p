@@ -1,38 +1,23 @@
 """
 MAVLink bağlantı yöneticisi – thread-safe, sinyal/slot tabanlı.
 SITL veya gerçek donanıma udp/tcp/serial üzerinden bağlanır.
-Şifreli mod: Pi'ye tcp bağlanır, tüm trafik AES-256-GCM ile korunur.
+Bağlantı kopunca otomatik olarak yeniden bağlanmayı dener.
 """
 
 from pymavlink import mavutil
 from PyQt5.QtCore import QThread, pyqtSignal
 import time
-import socket
-import struct
-import threading
 import math
 import os
-import json
 import queue as _queue
 
 import numpy as np
 
 try:
-    from sifreleme import SifreliKanal, PaketToplama, anahtari_yukle
-    from cryptography.exceptions import InvalidTag
-    SIFRELEME_MEVCUT = True
-except ImportError:
-    SIFRELEME_MEVCUT = False
-
-try:
     import config_yukleyici as _cfg
-    _VARSAYILAN_DIZE  = _cfg.al("baglanti.varsayilan_dize", "tcp:127.0.0.1:5762")
-    _PROXY_PORT       = int(_cfg.al("baglanti.proxy_port", 14560))
-    _ANAHTAR_DOSYA    = os.path.expanduser(_cfg.al("baglanti.anahtar_dosya", "~/dogus-gcs/gcs_anahtar.key"))
+    _VARSAYILAN_DIZE = _cfg.al("baglanti.varsayilan_dize", "tcp:127.0.0.1:5762")
 except Exception:
-    _VARSAYILAN_DIZE  = "tcp:127.0.0.1:5762"
-    _PROXY_PORT       = 14560
-    _ANAHTAR_DOSYA    = os.path.expanduser("~/dogus-gcs/gcs_anahtar.key")
+    _VARSAYILAN_DIZE = "tcp:127.0.0.1:5762"
 
 
 UÇUŞ_MODLARI = {
@@ -54,11 +39,11 @@ UÇUŞ_MODLARI = {
     17: "FIRLATMA",         # FOLLOW
     18: "ZİGZAG",           # ZIGZAG
     19: "AKIŞ TUT",         # FLOWHOLD
-    20: "TAKİP",            # FOLLOW (v4+)
-    21: "ZİGZAG",           # ZIGZAG
+    20: "TAKİP",            # FOLLOW
+    21: "KAPLUMBAĞA",       # TURTLE (ters düşünce kurtarma)
     22: "AKILLI EV DÖN",    # SMART_RTL
-    23: "AKIŞ TUT",         # FLOWHOLD
-    24: "SALLANMA",         # SWARM (eski: unused)
+    23: "BATON",            # BATON (v4.4+)
+    24: "SALLANMA",         # SWARM
     25: "YAVAŞ LOITER",     # LOITER (yavaş)
 }
 
@@ -142,22 +127,11 @@ class MAVLinkBaglantisi(QThread):
     log_tamamlandi      = pyqtSignal(str)         # kaydedilen dosya yolu
     log_hata            = pyqtSignal(str)          # hata mesajı
 
-    def __init__(self, baglanti_dizesi: str = _VARSAYILAN_DIZE,
-                 anahtar_dosya: str = None):
+    def __init__(self, baglanti_dizesi: str = _VARSAYILAN_DIZE):
         super().__init__()
         self.baglanti_dizesi = baglanti_dizesi
         self._calis = True
         self._baglanti = None
-        # Şifreleme
-        self._sifreli_mod = False
-        self._kanal: "SifreliKanal | None" = None
-        if anahtar_dosya and SIFRELEME_MEVCUT:
-            try:
-                anahtar = anahtari_yukle(anahtar_dosya)
-                self._kanal = SifreliKanal(anahtar)
-                self._sifreli_mod = True
-            except Exception as e:
-                pass  # Şifresiz devam et
         self._son_hb_zamani = 0.0
         self._ev_lat: float | None = None
         self._ev_lon: float | None = None
@@ -201,92 +175,20 @@ class MAVLinkBaglantisi(QThread):
                 time.sleep(3)
 
     def _baglan(self):
-        if self._sifreli_mod:
-            self._sifreli_baglan()
-        else:
-            self._baglanti = mavutil.mavlink_connection(
-                self.baglanti_dizesi,
-                autoreconnect=False,
-                source_system=255,
-            )
-            self._baglanti.wait_heartbeat(timeout=60)
-            self.baglandi.emit()
-            self._son_hb_zamani = time.time()
-            # Veri akışı iste
-            self._baglanti.mav.request_data_stream_send(
-                self._baglanti.target_system,
-                self._baglanti.target_component,
-                mavutil.mavlink.MAV_DATA_STREAM_ALL,
-                10,  # 10 Hz
-                1,
-            )
-            self._mesaj_dongusu()
-
-    def _sifreli_baglan(self):
-        """Pi'ye şifreli TCP bağlantısı. Pi'de pi_kopru.py çalışıyor olmalı."""
-        parcalar = self.baglanti_dizesi.replace("tcp:", "").split(":")
-        host, port = parcalar[0], int(parcalar[1])
-
-        self._sifre_sok = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sifre_sok.connect((host, port))
-
-        # Şifreli soketi saran yerel UDP proxy başlat
-        self._proxy_port = _PROXY_PORT
-        self._proxy_baslat()
-
-        yerel_dize = f"udp:127.0.0.1:{self._proxy_port}"
         self._baglanti = mavutil.mavlink_connection(
-            yerel_dize, autoreconnect=False, source_system=255
+            self.baglanti_dizesi,
+            autoreconnect=False,
+            source_system=255,
         )
-        self._baglanti.wait_heartbeat(timeout=60)
+        self._baglanti.wait_heartbeat(timeout=15)
         self.baglandi.emit()
         self._son_hb_zamani = time.time()
-
-    def _proxy_baslat(self):
-        """
-        Yerel UDP proxy: GCS←→localhost:14560 (düz) ←→ Pi (şifreli TCP)
-        """
-        self._proxy_sok = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._proxy_sok.bind(("127.0.0.1", self._proxy_port))
-        self._proxy_gcs_adres = None
-        self._proxy_toplayici = PaketToplama()
-
-        def pi_dan_gcs_e():
-            while self._calis:
-                try:
-                    veri = self._sifre_sok.recv(65536)
-                    if not veri:
-                        break
-                    for paket in self._proxy_toplayici.veri_ekle(veri):
-                        try:
-                            acik = self._kanal.coz(paket)
-                            if self._proxy_gcs_adres:
-                                self._proxy_sok.sendto(acik, self._proxy_gcs_adres)
-                        except Exception:
-                            pass
-                except Exception:
-                    break
-
-        def gcs_den_pi_ye():
-            while self._calis:
-                try:
-                    veri, adres = self._proxy_sok.recvfrom(65536)
-                    self._proxy_gcs_adres = adres
-                    sifreli = self._kanal.sifrele(veri)
-                    self._sifre_sok.sendall(sifreli)
-                except Exception:
-                    break
-
-        threading.Thread(target=pi_dan_gcs_e, daemon=True).start()
-        threading.Thread(target=gcs_den_pi_ye, daemon=True).start()
-
-        # Veri akışı iste
         self._baglanti.mav.request_data_stream_send(
             self._baglanti.target_system,
             self._baglanti.target_component,
             mavutil.mavlink.MAV_DATA_STREAM_ALL,
             10,  # 10 Hz
-            1,   # başlat
+            1,
         )
         self._mesaj_dongusu()
 
@@ -720,6 +622,31 @@ class MAVLinkBaglantisi(QThread):
             hiz_ms,  # param2: speed (m/s)
             -1,      # param3: throttle (-1=no change)
             0, 0, 0, 0,
+        )
+
+    def guided_git(self, lat: float, lon: float, alt_m: float = 30.0):
+        """GUIDED moda geç ve belirtilen koordinata uç."""
+        self._kuyruga_ekle(self._guided_git_ic, lat, lon, alt_m)
+
+    def _guided_git_ic(self, lat: float, lon: float, alt_m: float):
+        if self._baglanti is None:
+            return
+        # Önce GUIDED moda geç (ArduCopter mod 4)
+        self._baglanti.set_mode(4)
+        import time as _t; _t.sleep(0.2)
+        # Konum hedefi gönder
+        self._baglanti.mav.set_position_target_global_int_send(
+            0,
+            self._baglanti.target_system,
+            self._baglanti.target_component,
+            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+            0b0000111111111000,  # sadece konum
+            int(lat * 1e7),
+            int(lon * 1e7),
+            alt_m,
+            0, 0, 0,
+            0, 0, 0,
+            0, 0,
         )
 
     def irtifa_degistir(self, hedef_m: float):
