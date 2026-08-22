@@ -205,22 +205,30 @@ var _ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
 // Sadece URL konfigürasyonları — L.tileLayer() seçilince oluşturulur (hafıza tasarrufu)
 var _TILE_URL = {
   uydu:   {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',           attr:'© Esri',    zoom:19},
-  hibrit: {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',           attr:'© Esri',    zoom:19, yerAdi:true},
+  hibrit: {url: _ESRI + 'World_Imagery/MapServer/tile/{z}/{y}/{x}',           attr:'© Esri',    zoom:19, yerAdi:true, yol:true},
   sokak:  {url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', attr:'© CartoDB', zoom:19},
   topo:   {url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',           attr:'© OpenTopoMap',  zoom:17},
   gece:   {url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr:'© CartoDB', zoom:19}
 };
 var _YERADI_URL = _ESRI + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+var _YOL_URL = _ESRI + 'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}';
 var _aktifKatman = null;
 var _yerAdiKatman = null;
+var _yolKatman = null;
 
 function katmanDegistir(isim) {
   // Eskiyi kaldır ve bellekten temizle
   if (_aktifKatman) { map.removeLayer(_aktifKatman); _aktifKatman = null; }
   if (_yerAdiKatman) { map.removeLayer(_yerAdiKatman); _yerAdiKatman = null; }
+  if (_yolKatman) { map.removeLayer(_yolKatman); _yolKatman = null; }
   // Sadece seçilen katmanı oluştur
   var cfg = _TILE_URL[isim] || _TILE_URL.uydu;
   _aktifKatman = L.tileLayer(cfg.url, {attribution:cfg.attr, maxZoom:cfg.zoom, errorTileUrl:_ERR_TILE}).addTo(map);
+  if (cfg.yol) {
+    // Hibrit: uydu görüntüsü + yol/cadde çizgileri — Uydu'dan görsel olarak
+    // net ayrışsın diye (eskiden sadece yer adı etiketi vardı, fark azdı)
+    _yolKatman = L.tileLayer(_YOL_URL, {attribution:'', maxZoom:19, opacity:0.9, errorTileUrl:_ERR_TILE}).addTo(map);
+  }
   if (cfg.yerAdi) {
     _yerAdiKatman = L.tileLayer(_YERADI_URL, {attribution:'', maxZoom:19, opacity:0.85, errorTileUrl:_ERR_TILE}).addTo(map);
   }
