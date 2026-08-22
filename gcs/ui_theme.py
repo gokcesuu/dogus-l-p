@@ -4,20 +4,20 @@ QTabWidget::pane { border: 1px solid rgba(148,188,227,0.22); }
 QTabBar::tab {
     background: #111c26; color: #7e9cb8; padding: 8px 20px;
     border: 1px solid rgba(148,188,227,0.22); border-bottom: none;
-    font-family: 'Barlow Condensed', sans-serif; font-weight: 600; letter-spacing: 0.04em;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
 }
 QTabBar::tab:selected { background: #1d2d3d; color: #e7e7ea; }
 QGroupBox {
     border: 1px solid rgba(148,188,227,0.22); border-radius: 2px;
     margin-top: 8px; font-weight: 600; color: #7e9cb8;
-    font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.06em;
+    font-family: 'Barlow Condensed', sans-serif;
 }
 QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
 QPushButton {
     background-color: #1d2d3d; color: #bdd8f2;
     border: 1px solid rgba(148,188,227,0.28); border-radius: 4px;
     padding: 6px 12px; font-size: 11px;
-    font-family: 'Barlow Condensed', sans-serif; font-weight: 600; letter-spacing: 0.02em;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
 }
 QPushButton:hover { background-color: rgba(148,188,227,0.16); }
 QPushButton:pressed { background-color: #111c26; }

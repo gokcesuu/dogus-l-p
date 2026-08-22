@@ -24,6 +24,15 @@ import argparse
 import math
 import numpy as np
 
+# Bkz. fence_yukle.py — aynı Windows konsol kod sayfası (cp1254/cp1252)
+# nedeniyle "✓"/"✗" gibi karakterler print() içinde UnicodeEncodeError
+# fırlatabiliyordu.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 try:
     from pymavlink import mavutil
     MAVLINK_MEVCUT = True
@@ -118,6 +127,7 @@ def rally_yukle(
     baglanti_dizesi: str = "tcp:127.0.0.1:5762",
     irtifa_m: int = VARSAYILAN_IRTIFA,
     dogrula: bool = True,
+    conn=None,
 ) -> bool:
     """
     Noktaları ArduPilot'a Rally Point olarak yükler.
@@ -127,29 +137,39 @@ def rally_yukle(
       2. Her nokta için RALLY_POINT mesajı gönder
       3. dogrula=True ise RALLY_FETCH_POINT ile oku ve karşılaştır
 
+    conn: zaten açık ve heartbeat almış bir mavutil bağlantısı verilirse
+    (örn. GCS'nin ana bağlantısı) kullanılır — YENİ bir soket AÇILMAZ.
+    ArduPilot SITL'in TCP portu genelde tek istemciyle sınırlı olduğundan,
+    GCS zaten bağlıyken ikinci bir bağlantı denemek heartbeat alamayıp
+    zaman aşımına uğrar.
+
     Dönüş: True → başarı, False → hata
     """
-    if not MAVLINK_MEVCUT:
-        raise ImportError("pip install pymavlink")
     if not noktalar:
         raise ValueError("Nokta listesi boş.")
     if len(noktalar) > MAX_RALLY:
         print(f"Uyarı: {len(noktalar)} nokta → ilk {MAX_RALLY} alınıyor.")
         noktalar = noktalar[:MAX_RALLY]
 
-    print(f"\nArduPilot'a bağlanılıyor: {baglanti_dizesi}")
-    conn = mavutil.mavlink_connection(
-        baglanti_dizesi,
-        autoreconnect=False,
-        source_system=254,   # GCS sistem ID
-    )
-
-    print("  Heartbeat bekleniyor...")
-    msg = conn.wait_heartbeat(timeout=10)
-    if msg is None:
-        print("HATA: Heartbeat alınamadı. Bağlantı kesildi.")
-        return False
-    print(f"  Bağlandı (sys={conn.target_system}, comp={conn.target_component})")
+    kendi_baglantisi = conn is None
+    if kendi_baglantisi:
+        if not MAVLINK_MEVCUT:
+            raise ImportError("pip install pymavlink")
+        print(f"\nArduPilot'a bağlanılıyor: {baglanti_dizesi}")
+        conn = mavutil.mavlink_connection(
+            baglanti_dizesi,
+            autoreconnect=False,
+            source_system=254,   # GCS sistem ID
+        )
+        print("  Heartbeat bekleniyor...")
+        msg = conn.wait_heartbeat(timeout=10)
+        if msg is None:
+            print("HATA: Heartbeat alınamadı. Bağlantı kesildi.")
+            return False
+        print(f"  Bağlandı (sys={conn.target_system}, comp={conn.target_component})")
+    else:
+        print(f"\nMevcut MAVLink bağlantısı yeniden kullanılıyor "
+              f"(sys={conn.target_system}, comp={conn.target_component})")
 
     n = len(noktalar)
     irtifa_cm = irtifa_m * 100   # RALLY_POINT alt alanı cm (ArduPilot legacy)

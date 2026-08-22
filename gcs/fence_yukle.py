@@ -27,6 +27,18 @@ import argparse
 
 import numpy as np
 
+# GCS'nin ana penceresinden bir QThread içinde çağrıldığında stdout, Windows
+# konsolunun varsayılan kod sayfasını (cp1254/cp1252 vb.) miras alır — bu kod
+# sayfaları "✓"/"✗" gibi karakterleri içermediğinden print() UnicodeEncodeError
+# fırlatıp yükleme işlemini "hata" gibi gösteriyordu. stdout'u UTF-8'e
+# yeniden yapılandırmak (mümkünse) veya en azından kodlanamayan karakterleri
+# sessizce değiştirmek bu sınıf hataları tamamen ortadan kaldırır.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 try:
     from pymavlink import mavutil
     MAVLINK_MEVCUT = True
@@ -61,10 +73,17 @@ def dikdortgen_cit(
     ]
 
 
-def fence_yukle_npz(npz_dosya: str, baglanti_dizesi: str, **kwargs) -> bool:
+def fence_yukle_npz(npz_dosya: str, baglanti_dizesi: str, conn=None, **kwargs) -> bool:
     """
     alan_verisi.npz'deki bounds'tan otomatik fence polygon oluştur ve yükle.
     kwargs → fence_yukle() fonksiyonuna iletilir.
+
+    conn: zaten açık bir mavutil bağlantısı verilirse (örn. GCS'nin ana
+    bağlantısı) YENİ bir soket açılmaz — bu, ArduPilot SITL'in TCP portunun
+    (5762 vb.) genellikle tek bir istemciyle sınırlı olması nedeniyle önemli:
+    GCS zaten bağlıyken ikinci bir mavutil.mavlink_connection() denemesi,
+    ArduPilot bağlantıyı kabul etmediği için heartbeat bekleyip zaman aşımına
+    uğrar (~10sn) ve yükleme sessizce başarısız görünür.
 
     NPZ bounds formatı: [lon_min, lat_min, lon_max, lat_max]
     """
@@ -76,7 +95,7 @@ def fence_yukle_npz(npz_dosya: str, baglanti_dizesi: str, **kwargs) -> bool:
     print(f"[Fence] NPZ bounds: LAT [{lat_min:.5f}, {lat_max:.5f}]  "
           f"LON [{lon_min:.5f}, {lon_max:.5f}]")
     noktalar = dikdortgen_cit(lat_min, lat_max, lon_min, lon_max)
-    return fence_yukle(noktalar, baglanti_dizesi, **kwargs)
+    return fence_yukle(noktalar, baglanti_dizesi, conn=conn, **kwargs)
 
 
 # ── MAVLink yardımcısı ────────────────────────────────────────────────────────
@@ -103,6 +122,7 @@ def fence_yukle(
     alt_max: float = VARSAYILAN_ALT_MAX,
     fence_action: int = VARSAYILAN_EYLEM,
     dogrula: bool = False,
+    conn=None,
 ) -> bool:
     """
     Noktaları ArduPilot'a AC_Fence polygon olarak yükler.
@@ -113,28 +133,36 @@ def fence_yukle(
       3. FENCE_ENABLE=1, FENCE_ACTION, FENCE_ALT_MAX parametrelerini ayarla
       4. (opsiyonel) FENCE_FETCH_POINT ile doğrula
 
+    conn: zaten açık ve heartbeat almış bir mavutil bağlantısı verilirse
+    (örn. GCS'nin ana bağlantısı) kullanılır — YENİ bir soket AÇILMAZ.
+    Verilmezse (CLI kullanımı gibi) eskisi gibi kendi bağlantısını açar.
+
     Dönüş: True → başarı, False → hata
     """
-    if not MAVLINK_MEVCUT:
-        raise ImportError("pip install pymavlink")
     if not noktalar:
         raise ValueError("Nokta listesi boş.")
 
     n = len(noktalar)
+    kendi_baglantisi = conn is None
 
-    print(f"\nArduPilot'a bağlanılıyor: {baglanti_dizesi}")
-    conn = mavutil.mavlink_connection(
-        baglanti_dizesi,
-        autoreconnect=False,
-        source_system=254,
-    )
-
-    print("  Heartbeat bekleniyor...")
-    msg = conn.wait_heartbeat(timeout=10)
-    if msg is None:
-        print("HATA: Heartbeat alınamadı. Bağlantı başarısız.")
-        return False
-    print(f"  Bağlandı (sys={conn.target_system}, comp={conn.target_component})")
+    if kendi_baglantisi:
+        if not MAVLINK_MEVCUT:
+            raise ImportError("pip install pymavlink")
+        print(f"\nArduPilot'a bağlanılıyor: {baglanti_dizesi}")
+        conn = mavutil.mavlink_connection(
+            baglanti_dizesi,
+            autoreconnect=False,
+            source_system=254,
+        )
+        print("  Heartbeat bekleniyor...")
+        msg = conn.wait_heartbeat(timeout=10)
+        if msg is None:
+            print("HATA: Heartbeat alınamadı. Bağlantı başarısız.")
+            return False
+        print(f"  Bağlandı (sys={conn.target_system}, comp={conn.target_component})")
+    else:
+        print(f"\nMevcut MAVLink bağlantısı yeniden kullanılıyor "
+              f"(sys={conn.target_system}, comp={conn.target_component})")
 
     # ── Adım 1: FENCE_TOTAL ──────────────────────────────────────────────────
     print(f"\nFENCE_TOTAL = {n} ayarlanıyor...")

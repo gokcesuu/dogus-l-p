@@ -9,13 +9,15 @@ class _RallyYuklemeThread(QThread):
     hata       = Signal(str)
 
     def __init__(self, npz_dosya: str, baglanti_dizesi: str,
-                 merkez_lat: float = 0.0, merkez_lon: float = 0.0, n: int = 5):
+                 merkez_lat: float = 0.0, merkez_lon: float = 0.0, n: int = 5,
+                 conn=None):
         super().__init__()
         self.npz     = npz_dosya
         self.dize    = baglanti_dizesi
         self.m_lat   = merkez_lat
         self.m_lon   = merkez_lon
         self.n       = n
+        self.conn    = conn   # varsa GCS'nin zaten açık MAVLink bağlantısı
         self._durdur_istendi = False
 
     def durdur(self):
@@ -33,7 +35,7 @@ class _RallyYuklemeThread(QThread):
                 merkez_lat=self.m_lat if self.m_lat != 0.0 else None,
                 merkez_lon=self.m_lon if self.m_lon != 0.0 else None,
             )
-            basarili = rally_yukle(noktalar, baglanti_dizesi=self.dize)
+            basarili = rally_yukle(noktalar, baglanti_dizesi=self.dize, conn=self.conn)
             if self._durdur_istendi:
                 return
             self.tamamlandi.emit(basarili, len(noktalar))
@@ -48,12 +50,13 @@ class _FenceYuklemeThread(QThread):
     hata       = Signal(str)
 
     def __init__(self, npz_dosya: str, baglanti_dizesi: str,
-                 alt_max: float = 120.0, fence_action: int = 1):
+                 alt_max: float = 120.0, fence_action: int = 1, conn=None):
         super().__init__()
         self.npz          = npz_dosya
         self.dize         = baglanti_dizesi
         self.alt_max      = alt_max
         self.fence_action = fence_action
+        self.conn         = conn   # varsa GCS'nin zaten açık MAVLink bağlantısı
         self._durdur_istendi = False
 
     def durdur(self):
@@ -67,6 +70,7 @@ class _FenceYuklemeThread(QThread):
                 self.npz, self.dize,
                 alt_max=self.alt_max,
                 fence_action=self.fence_action,
+                conn=self.conn,
             )
             if self._durdur_istendi:
                 return

@@ -1394,14 +1394,14 @@ class AnaPencere(QMainWindow):
         oge_stili_pasif = (
             "QToolButton { background:transparent; color:#9ebbd8; border:none; "
             "border-left:2px solid transparent; font-family:'Barlow Condensed',sans-serif; "
-            "font-weight:600; font-size:10px; letter-spacing:0.1em; padding:12px 0; }"
+            "font-weight:600; font-size:10px; padding:12px 0; }"
             "QToolButton:hover { background:rgba(148,188,227,0.06); }"
         )
         oge_stili_aktif = (
             "QToolButton { background:rgba(148,188,227,0.1); color:#e7e7ea; "
             "border:none; border-left:2px solid #94bce3; "
             "font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:10px; "
-            "letter-spacing:0.1em; padding:12px 0; }"
+            " padding:12px 0; }"
         )
         self._ray_stil_pasif = oge_stili_pasif
         self._ray_stil_aktif = oge_stili_aktif
@@ -1680,7 +1680,7 @@ class AnaPencere(QMainWindow):
             b = QLabel(baslik)
             b.setStyleSheet(
                 "color:#9ebbd8; font-size:10px; font-weight:700; "
-                "font-family:'Barlow Condensed',sans-serif; letter-spacing:0.2em; "
+                "font-family:'Barlow Condensed',sans-serif; "
                 "background:transparent; border:none;"
             )
             dis.addWidget(b)
@@ -1709,7 +1709,7 @@ class AnaPencere(QMainWindow):
             tlay.setSpacing(0)
             ad_lbl = QLabel(ad)
             ad_lbl.setStyleSheet(
-                "color:#627d98; font-size:10px; font-weight:600; letter-spacing:0.12em; "
+                "color:#627d98; font-size:10px; font-weight:600; "
                 "background:transparent; border:none; "
                 "font-family:'Barlow Condensed',sans-serif;"
             )
@@ -1780,8 +1780,8 @@ class AnaPencere(QMainWindow):
         _imu_esc_karti, _grafik_karti) — sekme içine gömülü değiller.
         """
         tabs = QTabWidget()
-        tabs.setMinimumHeight(130)
-        tabs.setMaximumHeight(215)
+        tabs.setMinimumHeight(210)
+        tabs.setMaximumHeight(340)
         tabs.setStyleSheet(
             "QTabWidget::pane { border:1px solid #1a2a3a; background:#0d1b2a; }"
             "QTabBar::tab { background:#0a1520; color:#7eb8e0; padding:4px 11px;"
@@ -1902,7 +1902,7 @@ class AnaPencere(QMainWindow):
             val_lbl = QLabel("—")
             val_lbl.setStyleSheet(
                 f"color:{renk}; font-size:34px; font-weight:bold; "
-                "background:transparent; border:none; letter-spacing:-1px;"
+                "background:transparent; border:none;"
             )
             val_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
@@ -2224,7 +2224,7 @@ class AnaPencere(QMainWindow):
             val_lbl = QLabel("—")
             val_lbl.setStyleSheet(
                 f"color:{renk}; font-size:22px; font-weight:bold; "
-                "background:transparent; border:none; letter-spacing:-1px;"
+                "background:transparent; border:none;"
             )
             val_lbl.setAlignment(Qt.AlignCenter)
             tlay.addWidget(ad_lbl)
@@ -2263,6 +2263,7 @@ class AnaPencere(QMainWindow):
 
         def _gauge(baslik: str, renk: str) -> tuple:
             kutu = QGroupBox(baslik)
+            kutu.setMinimumHeight(95)
             kutu.setStyleSheet(
                 f"QGroupBox {{ border:1px solid {renk}44; border-radius:6px; "
                 f"color:{renk}; font-size:9pt; font-weight:bold; "
@@ -2335,7 +2336,7 @@ class AnaPencere(QMainWindow):
         baslik = QLabel("UÇUŞ ÖNCESİ KONTROLLER")
         baslik.setStyleSheet(
             "color:#e7e7ea; font-size:16px; font-weight:700; "
-            "font-family:'Barlow Condensed',sans-serif; letter-spacing:0.1em;"
+            "font-family:'Barlow Condensed',sans-serif;"
         )
         ana.addWidget(baslik)
 
@@ -2354,7 +2355,7 @@ class AnaPencere(QMainWindow):
             etiket = QLabel(ad)
             etiket.setStyleSheet(
                 "color:#9ebbd8; font-size:12px; font-family:'Barlow Condensed',sans-serif; "
-                "font-weight:600; letter-spacing:0.04em;"
+                "font-weight:600;"
             )
             clay.addWidget(etiket)
             clay.addStretch()
@@ -2381,7 +2382,7 @@ class AnaPencere(QMainWindow):
         ara = QLabel("ARDUPILOT MESAJLARI")
         ara.setStyleSheet(
             "color:#9ebbd8; font-size:10px; font-weight:700; margin-top:4px; "
-            "font-family:'Barlow Condensed',sans-serif; letter-spacing:0.16em;"
+            "font-family:'Barlow Condensed',sans-serif;"
         )
         ana.addWidget(ara)
         self._prearm_mesajlar = QTextEdit()
@@ -2407,14 +2408,14 @@ class AnaPencere(QMainWindow):
         self._prearm_arm_baslik.setAlignment(Qt.AlignCenter)
         self._prearm_arm_baslik.setStyleSheet(
             "color:#d9a24a; font-size:40px; font-weight:700; background:transparent; "
-            "border:none; font-family:'Barlow Condensed',sans-serif; letter-spacing:0.04em;"
+            "border:none; font-family:'Barlow Condensed',sans-serif;"
         )
         arm_lay.addWidget(self._prearm_arm_baslik)
         self._prearm_arm_btn = QPushButton("MOTORLARI ARM ET")
         self._prearm_arm_btn.setFixedHeight(52)
         self._prearm_arm_btn.setStyleSheet(
             BAĞLAN_STİLİ_KOKPIT.replace("font-weight: bold;", "font-weight:700; font-size:13px; "
-            "font-family:'Barlow Condensed',sans-serif; letter-spacing:0.1em;")
+            "font-family:'Barlow Condensed',sans-serif;")
         )
         self._prearm_arm_btn.clicked.connect(self._arm_disarm_tikla)
         arm_lay.addWidget(self._prearm_arm_btn)
@@ -2499,7 +2500,7 @@ class AnaPencere(QMainWindow):
         durum_lbl.setText(metin)
         durum_lbl.setStyleSheet(
             f"color:{renk}; font-size:11px; font-weight:700; "
-            f"font-family:'Barlow Condensed',sans-serif; letter-spacing:0.06em;"
+            f"font-family:'Barlow Condensed',sans-serif;"
         )
         cerceve = getattr(durum_lbl, "_prearm_cerceve", None)
         if cerceve is not None:
@@ -2556,14 +2557,14 @@ class AnaPencere(QMainWindow):
             self._prearm_arm_baslik.setText("ARMED")
             self._prearm_arm_baslik.setStyleSheet(
                 "color:#8fbf7a; font-size:40px; font-weight:700; background:transparent; "
-                "border:none; font-family:'Barlow Condensed',sans-serif; letter-spacing:0.04em;"
+                "border:none; font-family:'Barlow Condensed',sans-serif;"
             )
             self._prearm_arm_btn.setText("MOTORLARI DISARM ET")
         else:
             self._prearm_arm_baslik.setText("DISARM")
             self._prearm_arm_baslik.setStyleSheet(
                 "color:#d9a24a; font-size:40px; font-weight:700; background:transparent; "
-                "border:none; font-family:'Barlow Condensed',sans-serif; letter-spacing:0.04em;"
+                "border:none; font-family:'Barlow Condensed',sans-serif;"
             )
             self._prearm_arm_btn.setText("MOTORLARI ARM ET")
 
@@ -5594,7 +5595,10 @@ class AnaPencere(QMainWindow):
         dize = self._mavlink.baglanti_dizesi
         self._mesaj_ekle(6, f"Rally Point yükleme başlıyor ({dize})…")
 
-        self._rally_thread = _RallyYuklemeThread(npz, dize, self._guncel_lat, self._guncel_lon)
+        self._rally_thread = _RallyYuklemeThread(
+            npz, dize, self._guncel_lat, self._guncel_lon,
+            conn=getattr(self._mavlink, "_baglanti", None),
+        )
         self._rally_thread.tamamlandi.connect(self._rally_yukle_tamamlandi)
         self._rally_thread.hata.connect(lambda m: self._mesaj_ekle(3, f"Rally hata: {m}"))
         self._rally_thread.start()
@@ -5818,7 +5822,8 @@ class AnaPencere(QMainWindow):
                             f"alt_max={alt_max}m, eylem={fence_action})…")
 
         self._fence_thread = _FenceYuklemeThread(
-            npz, dize, alt_max=alt_max, fence_action=fence_action
+            npz, dize, alt_max=alt_max, fence_action=fence_action,
+            conn=getattr(self._mavlink, "_baglanti", None),
         )
         self._fence_thread.tamamlandi.connect(self._fence_yukle_tamamlandi)
         self._fence_thread.hata.connect(
