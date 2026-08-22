@@ -2658,6 +2658,7 @@ class AnaPencere(QMainWindow):
         self._param_tablo.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._param_tablo.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._param_tablo.doubleClicked.connect(self._param_satir_duzenle)
+        self._param_tablo.itemChanged.connect(self._param_tablo_degisti)
         self._param_tablo.setSortingEnabled(True)
         duz.addWidget(self._param_tablo)
 
@@ -4360,28 +4361,40 @@ class AnaPencere(QMainWindow):
                 self._param_tablo.setRowHidden(r, metin not in item.text().lower())
 
     def _param_satir_duzenle(self, index):
+        """Çift tıklayınca sadece 'Yeni Değer' sütununu (2) düzenleme moduna al.
+
+        Gerçek değer yakalama işi burada YAPILMAZ — editItem() sadece
+        düzenleme kutusunu açar, kullanıcı henüz bir şey yazmamış olur.
+        Kullanıcı Enter'a basıp düzenlemeyi bitirdiğinde asıl yakalama
+        _param_tablo_degisti (itemChanged sinyali) içinde olur.
+        """
         if not getattr(self, "_param_ui_hazir", False):
             return
         satir = index.row()
-        ad_item = self._param_tablo.item(satir, 0)
-        val_item = self._param_tablo.item(satir, 1)
-        if not ad_item:
+        if not self._param_tablo.item(satir, 0):
             return
-        ad  = ad_item.text()
-        eski = val_item.text() if val_item else ""
-        # Düzenleme moduna al (3. sütun)
         self._param_tablo.setEditTriggers(QAbstractItemView.DoubleClicked)
         self._param_tablo.editItem(self._param_tablo.item(satir, 2))
         self._param_tablo.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        yeni_item = self._param_tablo.item(satir, 2)
-        if yeni_item and yeni_item.text():
-            try:
-                yeni_deger = float(yeni_item.text())
-                self._degistirilen_parametreler[ad] = yeni_deger
-                yeni_item.setForeground(QColor("#ffc107"))
-                self._param_bilgi.setText(f"{len(self._degistirilen_parametreler)} parametre değiştirildi (uygulanmadı).")
-            except ValueError:
-                pass
+
+    def _param_tablo_degisti(self, item):
+        """'Yeni Değer' sütunu düzenlemesi TAMAMLANINCA (Enter/odak kaybı) çağrılır."""
+        if not getattr(self, "_param_ui_hazir", False):
+            return
+        if item.column() != 2:
+            return
+        satir = item.row()
+        ad_item = self._param_tablo.item(satir, 0)
+        if not ad_item or not item.text():
+            return
+        ad = ad_item.text()
+        try:
+            yeni_deger = float(item.text())
+        except ValueError:
+            return
+        self._degistirilen_parametreler[ad] = yeni_deger
+        item.setForeground(QColor("#ffc107"))
+        self._param_bilgi.setText(f"{len(self._degistirilen_parametreler)} parametre değiştirildi (uygulanmadı).")
 
     # ── Buton aksiyonları ─────────────────────────────────────────────────────
 
