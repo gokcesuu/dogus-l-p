@@ -2444,6 +2444,13 @@ class AnaPencere(QMainWindow):
             b.clicked.connect(lambda _, t=tur: self._hizli_kalibrasyon(t))
             kal_row.addWidget(b)
         kal_lay.addLayout(kal_row)
+
+        _sihirbaz_btn = QPushButton("🔧 Kalibrasyon Sihirbazını Aç")
+        _sihirbaz_btn.setFixedHeight(32)
+        _sihirbaz_btn.setToolTip("Adım adım rehberli kalibrasyon (Gyro → Accel → Mag)")
+        _sihirbaz_btn.clicked.connect(self._kalibrasyon_sihirbazi_ac)
+        kal_lay.addWidget(_sihirbaz_btn)
+
         sag.addWidget(kal_cerceve)
 
         sag.addStretch()
@@ -2467,6 +2474,14 @@ class AnaPencere(QMainWindow):
             if cevap == QMessageBox.Yes:
                 self._mavlink.komut_gonder(400, 1, 0, 0, 0, 0, 0, 0)
                 self._mesaj_ekle(3, "ARM komutu gönderildi.")
+
+    def _kalibrasyon_sihirbazi_ac(self):
+        """Adım adım rehberli kalibrasyon dialogunu açar."""
+        if not self._komut_izinli_mi():
+            return
+        from kalibrasyon_sihirbazi import KalibrasyonSihirbazi
+        dlg = KalibrasyonSihirbazi(self)
+        dlg.exec_()
 
     def _hizli_kalibrasyon(self, tur: int):
         """Pre-Arm ekranındaki tek-tık kalibrasyon butonları (Gyro/Mag/Accel)."""
@@ -2679,6 +2694,48 @@ class AnaPencere(QMainWindow):
         self._log_progress.hide()
         duz.addWidget(self._log_progress)
 
+        # ── Uçuş Kaydı Oynatma (CSV telemetri playback) ──────────────────
+        self._log_oynatici = None
+        oynat_cerceve, oynat_lay = self._kart("UÇUŞ KAYDI OYNATMA (CSV)")
+        oynat_satir = QHBoxLayout()
+        oynat_satir.setSpacing(6)
+
+        self._oynat_sec_btn = QPushButton("CSV Seç")
+        self._oynat_sec_btn.setFixedHeight(26)
+        self._oynat_sec_btn.setToolTip("telemetri_*.csv dosyası seçip geçmiş uçuşu oynat")
+        self._oynat_sec_btn.clicked.connect(self._oynatma_dosya_sec)
+        oynat_satir.addWidget(self._oynat_sec_btn)
+
+        self._oynat_play_btn = QPushButton("▶ Oynat")
+        self._oynat_play_btn.setFixedHeight(26)
+        self._oynat_play_btn.setEnabled(False)
+        self._oynat_play_btn.clicked.connect(self._oynatma_baslat_duraklat)
+        oynat_satir.addWidget(self._oynat_play_btn)
+
+        self._oynat_durdur_btn = QPushButton("■ Durdur")
+        self._oynat_durdur_btn.setFixedHeight(26)
+        self._oynat_durdur_btn.setEnabled(False)
+        self._oynat_durdur_btn.clicked.connect(self._oynatma_durdur)
+        oynat_satir.addWidget(self._oynat_durdur_btn)
+
+        oynat_satir.addWidget(QLabel("Hız:"))
+        self._oynat_hiz_combo = QComboBox()
+        self._oynat_hiz_combo.addItems(["1x", "2x", "5x"])
+        self._oynat_hiz_combo.setFixedWidth(60)
+        oynat_satir.addWidget(self._oynat_hiz_combo)
+
+        oynat_satir.addStretch()
+        self._oynat_durum_lbl = QLabel("Oynatma için CSV seçin.")
+        self._oynat_durum_lbl.setStyleSheet("color:#7e9cb8; font-size:11px;")
+        oynat_satir.addWidget(self._oynat_durum_lbl)
+        oynat_lay.addLayout(oynat_satir)
+
+        self._oynat_progress = QProgressBar()
+        self._oynat_progress.setMaximumHeight(12)
+        self._oynat_progress.setValue(0)
+        oynat_lay.addWidget(self._oynat_progress)
+        duz.addWidget(oynat_cerceve)
+
         # Log tablosu
         self._log_tablo = QTableWidget(0, 3)
         self._log_tablo.setHorizontalHeaderLabels(["Log ID", "Boyut", "Tarih (UTC)"])
@@ -2782,6 +2839,83 @@ class AnaPencere(QMainWindow):
         except AttributeError:
             subprocess.Popen(["xdg-open", self._son_log_yolu])  # Linux
 
+    def _oynatma_dosya_sec(self):
+        """Oynatılacak telemetri CSV dosyasını seçtirir ve LogOynatici oluşturur."""
+        if self._bagli:
+            QMessageBox.warning(
+                self, "Bağlantı Aktif",
+                "Oynatma, canlı MAVLink verisiyle karışmaması için yalnızca "
+                "bağlantı yokken kullanılabilir. Önce bağlantıyı kesin."
+            )
+            return
+        yol, _ = QFileDialog.getOpenFileName(
+            self, "Telemetri CSV Seç", "", "CSV Dosyası (*.csv);;Tüm Dosyalar (*)"
+        )
+        if not yol:
+            return
+        try:
+            from log_playback import LogOynatici
+            self._log_oynatici = LogOynatici(self, yol)
+        except Exception as exc:
+            QMessageBox.critical(self, "CSV Okuma Hatası", str(exc))
+            return
+        if self._log_oynatici.satir_sayisi() == 0:
+            self._mesaj_ekle(3, "CSV dosyasında satır bulunamadı.")
+            self._log_oynatici = None
+            return
+        self._log_oynatici.ilerleme.connect(self._oynatma_ilerleme)
+        self._log_oynatici.bitti.connect(self._oynatma_bitti)
+        self._oynat_progress.setMaximum(self._log_oynatici.satir_sayisi())
+        self._oynat_progress.setValue(0)
+        self._oynat_play_btn.setEnabled(True)
+        self._oynat_play_btn.setText("▶ Oynat")
+        self._oynat_durdur_btn.setEnabled(True)
+        self._oynat_durum_lbl.setText(
+            f"{self._log_oynatici.satir_sayisi()} satır yüklendi: {os.path.basename(yol)}"
+        )
+        self._mesaj_ekle(6, f"Kayıt oynatma için hazır: {os.path.basename(yol)}")
+
+    def _oynatma_baslat_duraklat(self):
+        if self._log_oynatici is None:
+            return
+        if self._log_oynatici.calisiyor_mu():
+            self._log_oynatici.duraklat()
+            self._oynat_play_btn.setText("▶ Oynat")
+            self._oynatma_bant_goster(False)
+        else:
+            hiz = float(self._oynat_hiz_combo.currentText().rstrip("x"))
+            self._log_oynatici.baslat(hiz)
+            self._oynat_play_btn.setText("⏸ Duraklat")
+            self._oynatma_bant_goster(True)
+
+    def _oynatma_durdur(self):
+        if self._log_oynatici is None:
+            return
+        self._log_oynatici.durdur()
+        self._oynat_play_btn.setText("▶ Oynat")
+        self._oynat_progress.setValue(0)
+        self._oynatma_bant_goster(False)
+
+    def _oynatma_ilerleme(self, mevcut: int, toplam: int):
+        self._oynat_progress.setMaximum(max(1, toplam))
+        self._oynat_progress.setValue(mevcut)
+        self._oynat_durum_lbl.setText(f"Oynatılıyor: {mevcut} / {toplam}")
+
+    def _oynatma_bitti(self):
+        self._oynat_play_btn.setText("▶ Oynat")
+        self._oynat_durum_lbl.setText("Oynatma tamamlandı.")
+        self._oynatma_bant_goster(False)
+        self._mesaj_ekle(6, "Kayıt oynatma tamamlandı.")
+
+    def _oynatma_bant_goster(self, goster: bool):
+        """Oynatma sırasında gerçek veriyle karışmasın diye uyarı bandı gösterir."""
+        if goster:
+            self._uyari_bant.setText("⏵ KAYIT OYNATILIYOR — GERÇEK VERİ DEĞİL")
+            self._uyari_bant.show()
+        elif self._log_oynatici is None or not self._log_oynatici.calisiyor_mu():
+            if not self._bagli:
+                self._uyari_bant.hide()
+
     # ── Harita sekmesi ────────────────────────────────────────────────────────
 
     def _harita_sekme(self) -> QWidget:
@@ -2878,6 +3012,18 @@ class AnaPencere(QMainWindow):
         _save_btn.setToolTip("WP listesini .waypoints formatında kaydet")
         _save_btn.clicked.connect(self._wp_dosya_kaydet)
         _ayar_satir.addWidget(_save_btn)
+
+        _plan_load_btn = QPushButton("Plan Aç (.plan)")
+        _plan_load_btn.setFixedHeight(24)
+        _plan_load_btn.setToolTip("QGroundControl .plan (JSON) dosyasından WP listesini yükle")
+        _plan_load_btn.clicked.connect(self._wp_plan_yukle)
+        _ayar_satir.addWidget(_plan_load_btn)
+
+        _plan_save_btn = QPushButton("Plan Kaydet (.plan)")
+        _plan_save_btn.setFixedHeight(24)
+        _plan_save_btn.setToolTip("WP listesini QGroundControl .plan (JSON) formatında kaydet")
+        _plan_save_btn.clicked.connect(self._wp_plan_kaydet)
+        _ayar_satir.addWidget(_plan_save_btn)
 
         _ayar_satir.addSpacing(8)
 
@@ -4816,6 +4962,83 @@ class AnaPencere(QMainWindow):
             self._mesaj_ekle(4, f"{len(self._wp_listesi)} waypoint kaydedildi: {yol}")
         except Exception as exc:
             self._mesaj_ekle(3, f"WP dosya kaydetme hatası: {exc}")
+
+    def _wp_plan_yukle(self):
+        """QGroundControl .plan (JSON) formatından WP listesini yükler."""
+        yol, _ = QFileDialog.getOpenFileName(
+            self, "QGC Plan Aç", "", "QGC Plan (*.plan);;Tüm Dosyalar (*)"
+        )
+        if not yol:
+            return
+        try:
+            import json as _json
+            with open(yol, encoding="utf-8") as f:
+                data = _json.load(f)
+            items = data.get("mission", {}).get("items", [])
+            _ters = {v: k for k, v in self._WP_KOMUT_KODLARI.items()}
+            yeni = []
+            for it in items:
+                if it.get("type") != "SimpleItem":
+                    continue  # ComplexItem (survey vb.) bu turda desteklenmiyor
+                params = it.get("params") or [0, 0, 0, 0, 0, 0, 0]
+                while len(params) < 7:
+                    params.append(0)
+                komut = _ters.get(it.get("command", 16), "NAV_WAYPOINT")
+                lat = params[4]
+                lon = params[5]
+                alt = params[6] if params[6] not in (None, 0) else it.get("Altitude", 50)
+                if lat in (None, 0) and lon in (None, 0):
+                    continue
+                yeni.append({"lat": float(lat), "lon": float(lon),
+                             "alt": float(alt or 50), "komut": komut,
+                             "p1": float(params[0] or 0)})
+            if not yeni:
+                self._mesaj_ekle(3, "Plan dosyasında geçerli (SimpleItem) waypoint bulunamadı.")
+                return
+            self._wp_listesi = yeni
+            self._wp_tablo_yenile()
+            self._wp_haritadan_yenile()
+            self._mesaj_ekle(4, f"{len(yeni)} waypoint QGC .plan dosyasından yüklendi: {yol}")
+        except Exception as exc:
+            self._mesaj_ekle(3, f"Plan yükleme hatası: {exc}")
+
+    def _wp_plan_kaydet(self):
+        """WP listesini QGroundControl .plan (JSON) formatında kaydeder."""
+        if not self._wp_listesi:
+            self._mesaj_ekle(3, "Kaydedilecek waypoint yok.")
+            return
+        yol, _ = QFileDialog.getSaveFileName(
+            self, "QGC Plan Kaydet", "gorev.plan", "QGC Plan (*.plan);;Tüm Dosyalar (*)"
+        )
+        if not yol:
+            return
+        try:
+            items = []
+            for i, wp in enumerate(self._wp_listesi):
+                cmd_id = self._WP_KOMUT_KODLARI.get(wp.get("komut", "NAV_WAYPOINT"), 16)
+                items.append({
+                    "AMSLAltAboveTerrain": None, "Altitude": wp.get("alt", 50), "AltitudeMode": 1,
+                    "autoContinue": True, "command": cmd_id, "doJumpId": i + 1, "frame": 3,
+                    "params": [wp.get("p1", 0), 0, 0, None, wp["lat"], wp["lon"], wp.get("alt", 50)],
+                    "type": "SimpleItem",
+                })
+            plan = {
+                "fileType": "Plan", "version": 1, "groundStation": "Dogus LOP GCS",
+                "mission": {
+                    "cruiseSpeed": 15, "firmwareType": 12, "hoverSpeed": 5,
+                    "items": items,
+                    "plannedHomePosition": [self._wp_listesi[0]["lat"], self._wp_listesi[0]["lon"], 0],
+                    "vehicleType": 2, "version": 2,
+                },
+                "geoFence": {"circles": [], "polygons": [], "version": 2},
+                "rallyPoints": {"points": [], "version": 2},
+            }
+            import json as _json
+            with open(yol, "w", encoding="utf-8") as f:
+                _json.dump(plan, f, indent=2)
+            self._mesaj_ekle(4, f"{len(items)} waypoint QGC .plan olarak kaydedildi: {yol}")
+        except Exception as exc:
+            self._mesaj_ekle(3, f"Plan kaydetme hatası: {exc}")
 
     def _sesli_uyan(self, metin: str):
         """Arka planda TTS ile sesli uyarı verir (Windows SAPI / espeak)."""
