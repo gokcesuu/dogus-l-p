@@ -2807,9 +2807,9 @@ class AnaPencere(QMainWindow):
         _wp_git_btn.setFixedHeight(22)
         _wp_git_btn.setToolTip("Uçuş sırasında seçili waypoint'e atla (MISSION_SET_CURRENT)")
         _wp_git_btn.setStyleSheet(
-            "QPushButton { background:#1a3a1a; color:#a5d6a7; border:1px solid #2a5a2a;"
+            "QPushButton { background:rgba(143,191,122,0.12); color:#a8cf94; border:1px solid rgba(143,191,122,0.4);"
             " border-radius:3px; font-size:11px; padding:0 6px; }"
-            "QPushButton:hover { background:#2a5a2a; }"
+            "QPushButton:hover { background:rgba(143,191,122,0.2); }"
         )
         _wp_git_btn.clicked.connect(self._wp_git_tikla)
         _ozet_satir.addWidget(_wp_git_btn)
@@ -2829,8 +2829,8 @@ class AnaPencere(QMainWindow):
         self._wp_def_alt.setFixedWidth(80)
         self._wp_def_alt.setToolTip("Yeni waypoint'lerin varsayılan irtifası")
         self._wp_def_alt.setStyleSheet(
-            "QSpinBox { background:#1a2a3a; color:#ddd; border:1px solid #2a4060;"
-            " border-radius:3px; padding:1px 4px; }"
+            f"QSpinBox {{ background:{KOKPIT_PANEL}; color:#bdd8f2; border:1px solid {KOKPIT_KENAR};"
+            " border-radius:3px; padding:1px 4px; }}"
         )
         self._wp_def_alt.valueChanged.connect(
             lambda v: self._js(f"wpDefAltGuncelle({v});")
@@ -2845,8 +2845,8 @@ class AnaPencere(QMainWindow):
         self._wp_radius.setFixedWidth(75)
         self._wp_radius.setToolTip("Waypoint kabul yarıçapı (MAVLink param 1)")
         self._wp_radius.setStyleSheet(
-            "QSpinBox { background:#1a2a3a; color:#ddd; border:1px solid #2a4060;"
-            " border-radius:3px; padding:1px 4px; }"
+            f"QSpinBox {{ background:{KOKPIT_PANEL}; color:#bdd8f2; border:1px solid {KOKPIT_KENAR};"
+            " border-radius:3px; padding:1px 4px; }}"
         )
         _ayar_satir.addWidget(self._wp_radius)
 
@@ -2893,15 +2893,19 @@ class AnaPencere(QMainWindow):
         self._wp_tablo.setColumnWidth(3, 48)               # P2 sütunu
         self._wp_tablo.setColumnWidth(4, 48)               # P3 sütunu
         self._wp_tablo.setColumnWidth(10, 56)              # ↑↓ buton sütunu
-        self._wp_tablo.setMaximumHeight(165)
-        self._wp_tablo.setMinimumHeight(80)
+        self._wp_tablo.setMaximumHeight(238)
+        self._wp_tablo.setMinimumHeight(120)
         self._wp_tablo.setEditTriggers(QAbstractItemView.DoubleClicked)
         self._wp_tablo.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._wp_tablo.setAlternatingRowColors(True)
         self._wp_tablo.setStyleSheet(
-            "QTableWidget { background:#1a1a2a; color:#ddd; font-size:12px; }"
-            "QHeaderView::section { background:#2a2a3a; color:#aaa; padding:3px; }"
-            "QTableWidget::item:selected { background:#2a3a5a; }"
+            f"QTableWidget {{ background:{KOKPIT_ZEMIN}; color:#bdd8f2; font-size:12px; "
+            "font-family:'Barlow',sans-serif; gridline-color:rgba(148,188,227,0.08); }}"
+            f"QHeaderView::section {{ background:{KOKPIT_PANEL}; color:#627d98; padding:6px; "
+            "font-family:'Barlow Condensed',sans-serif; font-weight:600; letter-spacing:0.1em; "
+            "border:none; }}"
+            "QTableWidget::item:alternate { background:rgba(17,28,38,0.5); }"
+            "QTableWidget::item:selected { background:rgba(148,188,227,0.14); }"
         )
         self._wp_tablo.itemChanged.connect(self._wp_tablo_degisti)
         duz.addWidget(self._wp_tablo)
