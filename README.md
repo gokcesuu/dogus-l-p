@@ -28,8 +28,15 @@ dogus-lop-gcs/
 │   ├── pi_karar_dongusu.py           ← Raspberry Pi'de çalışan otonom karar döngüsü
 │   ├── ucus_raporu.py                ← Uçuş sonrası HTML rapor üreteci
 │   ├── ucus_raporlayici.py           ← Rapor arayüz entegrasyonu
+│   ├── geo_import.py                 ← SHP/KML'den geofence polygon içe aktarma
+│   ├── log_playback.py               ← Kaydedilmiş CSV telemetriyi GCS üzerinde tekrar oynatma
+│   ├── analytics.py                  ← Real-time uçuş metrikleri toplayıcı (canlı + replay)
+│   ├── analytics_widget.py           ← Analytics panelinin PyQt5 arayüzü
+│   ├── kalibrasyon_sihirbazi.py      ← Adım adım rehberli Gyro/Accel/Mag kalibrasyon sihirbazı
 │   └── tools/
 │       └── mavlink_probe.py          ← Hızlı MAVLink bağlantı test aracı
+├── firmware/
+│   └── DogusFC/                      ← ArduPilot board tanımı (hwdef.dat/hwdef-bl.dat) — bkz. içindeki README
 ├── lua/                              ← ArduPilot Lua Scriptleri (SD kart → APM/scripts/)
 │   ├── imu_thermal_control.lua       ← IMU ısı PID kontrolü (GPIO ısıtıcı)
 │   ├── terrain_brake.lua             ← Düşük AGL'de otomatik BRAKE modu
@@ -68,6 +75,12 @@ dogus-lop-gcs/
 | **Acil Komutlar**     | EV'E DÖN (RTL), ACİL İNİŞ, Hovering, Devam Et, Güvenli İnişe Git                  |
 | **Mod Değiştirici** | Sabitleme, Loiter, Otomatik, Kılavuz                                                     |
 | **Mesaj Logu**        | Tüm ArduPilot STATUSTEXT mesajları Türkçe olarak loglanır                            |
+| **Görev Planlama**   | Haritadan waypoint çizme, `.waypoints` (QGC WPL 110) ve `.plan` (QGroundControl JSON) içe/dışa aktarma |
+| **Geofence**          | Haritadan çizme veya SHP/KML dosyasından polygon içe aktarma, tek tıkla drone'a yükleme |
+| **Akıllı Uyarılar**   | Kritik STATUSTEXT mesajlarında otomatik sesli uyarı + durum çubuğu (severity tabanlı)   |
+| **Uçuş Kaydı Oynatma**| Kaydedilmiş CSV telemetriyi (yalnızca bağlantı yokken) UI üzerinde tekrar oynatma — debug için |
+| **Kalibrasyon Sihirbazı** | Gyro → Accel → Mag adımlarını Türkçe talimat + canlı STATUSTEXT takibiyle yürüten rehberli akış |
+| **Analytics Paneli**  | Uçuş süresi, mesafe, enerji tüketimi, min. hücre voltajı, EKF/RC/GPS kayıp olayları — canlı ve replay'de |
 
 ### Güvenlik Katmanları
 
@@ -378,6 +391,7 @@ python gcs/tools/mavlink_probe.py --conn tcp:PI_IP:5760 --key gcs_anahtar.key --
 | OSM engel kontrolü     | overpy                               |
 | DEM indirme             | boto3, pystac-client (Copernicus S3) |
 | Şifreleme              | cryptography (AES-256-GCM)           |
+| Geofence dosya okuma    | pyshp (SHP), stdlib xml (KML)         |
 | Uçuş yazılımı      | ArduPilot (açık kaynak)            |
 | Simülatör             | ArduPilot SITL + MAVProxy            |
 | Kart scriptleri         | Lua (ArduPilot yerleşik)            |
@@ -407,6 +421,15 @@ Copernicus DEM indirme için [dataspace.copernicus.eu](https://dataspace.coperni
 ücretsiz hesap aç ve S3 anahtarlarını `config.json`'a ekle.
 
 ---
+
+## Bilinen Sınırlar
+
+- **DogusFC kartı henüz üretilmedi** — `firmware/DogusFC/hwdef.dat` ArduPilot'un kendi parser'ıyla
+  statik olarak doğrulanmıştır (pin çakışması yok), ama gerçek donanımda hiç test edilmemiştir.
+  Bootloader `.bin` dosyası da henüz derlenip flaşlanmamıştır.
+- **QGC `.plan` desteği** yalnızca `SimpleItem` (düz waypoint) tiplerini kapsar — Survey/StructureScan
+  gibi ComplexItem görev tipleri desteklenmez.
+- **Uçuş kaydı oynatma**, sadece gerçek MAVLink bağlantısı yokken kullanılabilir (canlı veriyle karışmasın diye).
 
 ## Proje Bağlamı
 
