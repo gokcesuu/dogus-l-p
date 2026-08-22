@@ -66,6 +66,8 @@ import config_yukleyici as _cfg
 
 from rtl_monitor import RtlIzleyici
 from splash_screen import SplashEkrani
+from analytics import AnalyticsCollector, extract_csv_row_to_dict
+from analytics_widget import AnalyticsPanel
 from ui_theme import (
     ACİL_STILI, BAĞLAN_STILI, KOYU_TEMA, UYARI_STILI,
     KOKPIT_ZEMIN, KOKPIT_PANEL, KOKPIT_KENAR, KOKPIT_VURGU, KOKPIT_VURGU2,
@@ -1217,6 +1219,13 @@ class AnaPencere(QMainWindow):
         self._min_hucre_volt    = 0.0          # BATTERY_STATUS'tan, 0=bilinmiyor
         self._alan_bounds: "tuple | None" = None  # (lat_min, lat_max, lon_min, lon_max)
         self._alan_karar_yukleniyor = False   # arka plan okuma sürerken yazma/yeniden-indirme tetiklenmesin
+         
+        # Analytics Collector (real-time metrics)
+        _hucre_sayisi = int(_cfg.al("batarya.hucre_sayisi", 4))
+        _nominal_v = float(_cfg.al("batarya.hucre_sayisi", 4)) * 4.2  # nom = 4.2V/hücre
+        self._analytics = AnalyticsCollector(battery_nominal_v=_nominal_v, cell_count=_hucre_sayisi)
+        self._analytics_panel: "AnalyticsPanel | None" = None
+         
         _npz = os.path.join(os.path.dirname(__file__), "alan_verisi.npz")
         if not os.path.isfile(_npz):
             _npz = "alan_verisi.npz"       # çalışma dizininde ara
@@ -1317,9 +1326,10 @@ class AnaPencere(QMainWindow):
 
         self._icerik_stack = QStackedWidget()
 
-        UCUS_IDX, PARAM_IDX, PREARM_IDX, LOG_IDX = 0, 1, 2, 3
+        UCUS_IDX, PARAM_IDX, PREARM_IDX, LOG_IDX, ANALYTICS_IDX = 0, 1, 2, 3, 4
         self._param_tab_index = PARAM_IDX
         self._harita_tab_index = UCUS_IDX   # harita artık Uçuş ekranının parçası
+        self._analytics_tab_index = ANALYTICS_IDX
 
         self._icerik_stack.addWidget(self._ana_sekme())          # 0: UÇUŞ
 
@@ -1332,6 +1342,10 @@ class AnaPencere(QMainWindow):
 
         self._icerik_stack.addWidget(self._prearm_sekme())        # 2: PRE-ARM
         self._icerik_stack.addWidget(self._log_sekme())           # 3: LOG
+         
+        # Analytics sekmesi
+        self._analytics_panel = AnalyticsPanel()
+        self._icerik_stack.addWidget(self._analytics_panel)       # 4: ANALYTICS
 
         govde.addWidget(self._nav_ray_olustur(), 0)
         govde.addWidget(self._icerik_stack, 1)
@@ -1417,7 +1431,7 @@ class AnaPencere(QMainWindow):
             return b
 
         _OGELER = ((0, "UÇUŞ", "cember"), (1, "PARAM", "kare"),
-                   (2, "PRE-ARM", "cizgiler"), (3, "LOG", "yarim"))
+                   (2, "PRE-ARM", "cizgiler"), (3, "LOG", "yarim"), (4, "ANALYTİCS", "daire"))
         for idx, etiket, sekil in _OGELER:
             b = _rail_dugmesi(etiket, sekil)
             if idx == 0:
@@ -3222,6 +3236,16 @@ class AnaPencere(QMainWindow):
         self._log_timer.stop()
         self._logger.durdur()
         self._ucus_kaydedici.durdur()
+        
+        # Analytics'i finalize et (uçuş sonu hesapları yap) ve panel'i güncelle
+        self._analytics.finalize()
+        if self._analytics_panel:
+            self._analytics_panel.update_metrics(self._analytics.get_metrics())
+        # Yeni uçuş için sıfırla
+        self._analytics.reset()
+        if self._analytics_panel:
+            self._analytics_panel.reset()
+        
         self._js_timer.setInterval(1000)   # bağlı değilken harita güncellemesi gereksiz — yavaşlat
         self._sure_timer.stop()
         self._baglanti_zamani = None
@@ -4195,6 +4219,32 @@ class AnaPencere(QMainWindow):
                 "ekf_hata":      s.get("ekf_hata", 0.0),
                 "mod_id":        s.get("mod_id", 0),
             })
+            
+            # Analytics collector'ı update et
+            timestamp_s = s.get("timestamp_s", 0.0)
+            analytics_dict = {
+                "timestamp_s": timestamp_s,
+                "lat": s.get("lat"),
+                "lon": s.get("lon"),
+                "alt_agl_m": s.get("irtifa"),
+                "climb_rate_ms": s.get("dikey_hiz"),
+                "speed_ms": s.get("hiz"),
+                "battery_volt": s.get("bat_volt"),
+                "battery_percent": s.get("bat_yuzde"),
+                "battery_current_a": s.get("bat_amper"),
+                "wind_speed_ms": s.get("ruzgar_ms"),
+                "imu0_temp": s.get("imu0_c"),
+                "imu1_temp": s.get("imu1_c"),
+                "imu2_temp": s.get("imu2_c"),
+                "gps_fix": s.get("gps_fix"),
+                "mode": s.get("mod_adi"),
+                "ekf_error": bool(s.get("ekf_hata", 0.0) > 0.8),
+                "rc_lost": False,  # RC status MAVLink handler'ından gelir
+                "vibration": s.get("vibrasyon", 0.0),
+            }
+            self._analytics.update_from_dict(analytics_dict, timestamp_s)
+            if self._analytics_panel:
+                self._analytics_panel.update_metrics(self._analytics.get_metrics())
 
     def _ekf_guncelle(self, bayraklar: int, hata: float):
         self._guncel_ekf_hata = hata

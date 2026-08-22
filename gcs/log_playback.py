@@ -11,6 +11,7 @@ tarafında yapılıyor.
 import csv
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
+from analytics import extract_csv_row_to_dict
 
 
 class LogOynatici(QObject):
@@ -42,6 +43,13 @@ class LogOynatici(QObject):
 
     def baslat(self, hiz: float = 1.0):
         """Oynatmayı başlatır/devam ettirir. hiz: 1.0=normal, 2.0=2x, 5.0=5x."""
+        # Analytics'i sıfırla (yeni oynatma oturumu için)
+        if self._idx == 0:
+            if hasattr(self._gcs, '_analytics'):
+                self._gcs._analytics.reset()
+                if self._gcs._analytics_panel:
+                    self._gcs._analytics_panel.reset()
+        
         self._hiz = max(0.1, hiz)
         self._timer.start(max(20, int(1000 / self._hiz)))
 
@@ -50,6 +58,12 @@ class LogOynatici(QObject):
 
     def durdur(self):
         """Oynatmayı tamamen durdurur ve baştan başlatılabilir hale getirir."""
+        # Analytics'i finalize et (oynatma sonu)
+        if hasattr(self._gcs, '_analytics') and self._idx > 0:
+            self._gcs._analytics.finalize()
+            if self._gcs._analytics_panel:
+                self._gcs._analytics_panel.update_metrics(self._gcs._analytics.get_metrics())
+        
         self._timer.stop()
         self._idx = 0
 
@@ -89,6 +103,14 @@ class LogOynatici(QObject):
             g._tutum_guncelle(
                 self._f(s, "roll"), self._f(s, "pitch"), self._f(s, "yaw"),
             )
+            
+            # Analytics'i güncelle (oynatma sırasında)
+            if hasattr(g, '_analytics'):
+                timestamp_s = self._f(s, "timestamp_s", 0.0)
+                analytics_dict = extract_csv_row_to_dict(s)
+                g._analytics.update_from_dict(analytics_dict, timestamp_s)
+                if g._analytics_panel:
+                    g._analytics_panel.update_metrics(g._analytics.get_metrics())
         except Exception:
             pass   # oynatma sırasında tekil satır hatası tüm akışı durdurmasın
         self._idx += 1
