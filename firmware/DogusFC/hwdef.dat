@@ -1,0 +1,284 @@
+# hw definition file for DogusFC
+# Dogus University LOP Flight Controller
+# MCU: STM32H753 (LQFP144, 480MHz Cortex-M7)
+# Reference: CubeOrange hwdef
+#
+# Guc mimarisi:
+#   POWER1 (5V) -> TPS62132 (buck, 3A) -> 3V3_MAIN
+#                                          |-- STM32H753 dijital pinler
+#                                          |-- microSD
+#                                          `-- CAN (TCAN334GDCNT x2) + diger dijital
+#              -> LP5907 (LDO, 250mA) -> 3V3_SENSOR
+#                                          |-- ICM-42688-P
+#                                          |-- BMI088 (accel+gyro, 2 CS)
+#                                          `-- BMP390 (baro)
+# NOT: PCB'de pusula/manyetometre yok - GPS modulu pusulasina guvenilir.
+# NOT: IOMCU (STM32F103) YOK - PWM cikislari dogrudan STM32H753'ten uretilir.
+
+# ============================================================
+# MCU
+# ============================================================
+MCU STM32H7xx STM32H753xx
+
+FLASH_SIZE_KB 2048
+FLASH_RESERVE_START_KB 128
+
+OSCILLATOR_HZ 8000000
+
+APJ_BOARD_ID 1100
+
+# ============================================================
+# USB
+# ============================================================
+USB_VENDOR 0x1209
+USB_PRODUCT 0x5740
+USB_STRING_MANUFACTURER "Dogus University LOP"
+
+# ============================================================
+# SPI BUS ORDER
+# IMU1 (ICM-42688-P)  -> SPI2
+# IMU2 (BMI088)       -> SPI3 (accel+gyro icin 2 ayri CS)
+# Baro (BMP390)       -> SPI4  (alternatif: MS5611 - henuz netlesmedi)
+# FRAM (FM25CL64B)    -> SPI5
+# SPI1                -> TODO: 3. IMU eklenirse burasi kullanilacak
+# ============================================================
+
+# ============================================================
+# I2C: PCB uzerinde dahili pusula/EEPROM yok.
+# Harici pusula gerekirse ileride eklenir. Simdilik I2C_ORDER tanimlanmiyor.
+# ============================================================
+
+# ============================================================
+# SERIAL / UART ORDER
+# OTG1    -> USB (Mission Planner / MAVLink)
+# USART6  -> Bos (IOMCU yok, ileride kullanilabilir)
+# USART2  -> Telem1
+# USART3  -> Telem2
+# UART4   -> GPS1
+# UART8   -> GPS2
+# OTG2    -> USB2 (yedek)
+# ============================================================
+SERIAL_ORDER OTG1 USART2 USART3 UART4 UART8 UART7 OTG2
+
+# ============================================================
+# PIN TANIMLARI
+# NOT: Asagidaki pin isimleri yer tutucudur.
+# Donanim ekibinin sematik onayindan sonra gercek pinlerle
+# guncellenmesi gerekir. Her "TODO" satiri bir acik sorudur.
+# ============================================================
+
+# --- USB ---
+PA11 OTG_FS_DM OTG1
+PA12 OTG_FS_DP OTG1
+
+# --- SWD (Debug) ---
+PA13 JTMS-SWDIO SWD
+PA14 JTCK-SWCLK SWD
+
+# --- SPI1 : Bos (ileride 3. IMU icin ayrildi) ---
+# TODO: 3. IMU karari netlestikce burasi doldurulacak
+PA5  SPI1_SCK  SPI1
+PA6  SPI1_MISO SPI1
+PA7  SPI1_MOSI SPI1
+
+# --- SPI2 : IMU1 (ICM-42688-P) ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PB13 SPI2_SCK  SPI2
+PB14 SPI2_MISO SPI2
+PB15 SPI2_MOSI SPI2
+PC1  IMU1_CS   CS
+PD15 IMU1_DRDY INPUT
+
+# --- SPI3 : IMU2 (BMI088 - accel + gyro, 2 ayri CS) ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PB3  SPI3_SCK  SPI3
+PB4  SPI3_MISO SPI3
+PB5  SPI3_MOSI SPI3
+PA4  IMU2_ACC_CS CS
+PD10 IMU2_GYRO_CS CS
+PA8  IMU2_DRDY INPUT
+
+# --- SPI4 : Barometer (BMP390) ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PE2  SPI4_SCK  SPI4
+PE5  SPI4_MISO SPI4
+PE6  SPI4_MOSI SPI4
+PD7  BARO_CS   CS
+
+# --- SPI5 : FRAM (FM25CL64B-GTR) ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PF7  SPI5_SCK  SPI5
+PF8  SPI5_MISO SPI5
+PF9  SPI5_MOSI SPI5
+PF6  FRAM_CS   CS SPEED_VERYLOW
+
+# --- I2C: PCB'de pusula/EEPROM yok, tanimlanmadi ---
+
+# --- PWM/ESC cikislari (IOMCU YOK - dogrudan STM32H753 timer) ---
+# TODO: BOM'da tek 'PWM connector' var - kanal sayisi/pin haritasi
+# donanim sematik onayindan sonra netlesecek. 4 kanal placeholder:
+PC6  TIM8_CH1 TIM8 PWM(1) GPIO(50)
+PC7  TIM8_CH2 TIM8 PWM(2) GPIO(51)
+PD12 TIM4_CH1 TIM4 PWM(3) GPIO(52)
+PD13 TIM4_CH2 TIM4 PWM(4) GPIO(53)
+
+# --- Telem1 ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PD5  USART2_TX  USART2
+PD6  USART2_RX  USART2
+PD3  USART2_CTS USART2
+PD4  USART2_RTS USART2
+
+# --- Telem2 ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PD9  USART3_RX  USART3
+PD8  USART3_TX  USART3
+PD11 USART3_CTS USART3
+
+# --- GPS1 ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PA0  UART4_TX UART4
+PA1  UART4_RX UART4 NODMA
+
+# --- GPS2 ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PE0  UART8_RX UART8
+PE1  UART8_TX UART8 NODMA
+
+# --- CAN (TCAN334GDCNT x2, transceiver - CAN1/CAN2) ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PD0  CAN1_RX CAN1
+PD1  CAN1_TX CAN1
+
+# --- Sensor guc enable (LP5907 EN pini) ---
+# TODO: Gercek EN pin numarasini donanim sematikten al
+PE3  VDD_3V3_SENSORS_EN OUTPUT LOW
+
+# --- Batarya ADC ---
+# Voltage Sense: Batarya gerilimi -> gerilim bolucusu -> STM32 ADC
+# Current Sense: Shunt -> Opamp -> ~2V -> STM32 ADC
+# Not: Kesin olcek degerleri kullanilan Power Module'e gore belirlenecek
+PA2  BATT_VOLTAGE_SENS ADC1 SCALE(1)
+PA3  BATT_CURRENT_SENS ADC1 SCALE(1)
+
+# --- LED (BOM: Power/Status/Error - 3 adet) ---
+# TODO: Gercek pin numaralarini donanim sematikten al
+PE12 FMU_LED_AMBER OUTPUT HIGH OPENDRAIN GPIO(0)   # Status
+PE13 FMU_LED_GREEN OUTPUT HIGH OPENDRAIN GPIO(1)   # Power
+PE14 FMU_LED_RED   OUTPUT HIGH OPENDRAIN GPIO(2)   # Error/Fault (opsiyonel)
+
+# --- Boot0 (BOM: Boot jumper/button) ---
+# Donanimsal BOOT0 pini/jumper - hwdef'te ayrica tanimlanmaz,
+# STM32'nin kendi BOOT0 pinine sematik uzerinden baglanir.
+# Tasarim sekli (jumper mi buton mu) donanim ekibine bagli.
+
+# --- Safety Switch (BOM: Safety push button) ---
+# TODO: Gercek pin numarasini donanim sematikten al
+PB2  SAFETY_IN INPUT
+PB1  SAFETY_OUT OUTPUT GPIO(78)
+
+# --- Buzzer ---
+PA15 TIM2_CH1 TIM2 GPIO(77) ALARM
+
+# --- SD Kart ---
+include sdcard.inc
+
+# ============================================================
+# SPI CIHAZ TABLOSU
+# ============================================================
+# IMU1: ICM-42688-P -> SPI2 (Invensensev3 surucusu)
+SPIDEV icm42688        SPI2 DEVID1  IMU1_CS  MODE3  4*MHZ  8*MHZ
+
+# IMU2: BMI088 -> SPI3 (accel + gyro ayri CS gerektirir)
+SPIDEV bmi088_a        SPI3 DEVID2  IMU2_ACC_CS  MODE3 10*MHZ 10*MHZ
+SPIDEV bmi088_g        SPI3 DEVID3  IMU2_GYRO_CS MODE3 10*MHZ 10*MHZ
+
+# Barometer: BMP390 -> SPI4
+SPIDEV bmp390          SPI4 DEVID1  BARO_CS  MODE3 10*MHZ 10*MHZ
+
+# FRAM: FM25CL64B-GTR -> SPI5 (ArduPilot "ramtron" olarak tanir)
+SPIDEV ramtron         SPI5 DEVID1  FRAM_CS  MODE3  8*MHZ  8*MHZ
+
+# ============================================================
+# IMU TANIMI
+# ============================================================
+# IMU1: ICM-42688-P
+IMU Invensensev3 SPI:icm42688  ROTATION_NONE
+
+# IMU2: BMI088 (Bosch surucusu, accel+gyro ayri SPI CS)
+IMU BMI088 SPI:bmi088_a SPI:bmi088_g ROTATION_NONE
+
+# TODO: 3. IMU karari netlestikten sonra buraya ekle
+
+define HAL_DEFAULT_INS_FAST_SAMPLE 3
+
+# 2 IMU EKF'de aktif (bit0=IMU1, bit1=IMU2)
+define HAL_EKF_IMU_MASK_DEFAULT 3
+
+# ============================================================
+# BAROMETER
+# ============================================================
+BARO BMP390 SPI:bmp390
+
+# ============================================================
+# PUSULALAR
+# ============================================================
+# PCB'de dahili pusula yok (BOM'da BMM150/manyetometre bulunmuyor).
+# Harici GPS modulunun kendi pusulasi varsa (Here3->IST8310,
+# HERE4->RM3100 gibi) DroneCAN/UAVCAN veya GPS-UART uzerinden
+# otomatik algilanir.
+define AP_COMPASS_PROBING_ENABLED 1
+
+# ============================================================
+# FRAM (parametre depolama)
+# ============================================================
+# FM25CL64B-GTR: flash yerine FRAM'e yazar -- cok daha hizli,
+# flash omrunu tuketmez.
+define HAL_WITH_RAMTRON 1
+
+# IOMCU yok - PWM/DShot cikislari dogrudan STM32H753 timer'larindan
+# uretilir (yukaridaki PC6-PC9 PWM tanimlari).
+
+# ============================================================
+# GENEL AYARLAR
+# ============================================================
+define HAL_STORAGE_SIZE 32768
+define HAL_OS_FATFS_IO 1
+define HAL_HAVE_SAFETY_SWITCH 1
+define HAL_HAVE_IMU_HEATER 1
+define HAL_IMU_TEMP_DEFAULT 45
+define HAL_IMUHEAT_P_DEFAULT 50
+define HAL_IMUHEAT_I_DEFAULT 0.07
+define HAL_IMU_TEMP_MARGIN_LOW_DEFAULT 5
+
+# ============================================================
+# BATARYA IZLEME
+# ============================================================
+# JST-6H (6pin) konnektor uzerinden Power Module -> FCU
+# Pin 3: Current Sense (Shunt -> Opamp -> 2V -> ADC)
+# Pin 4: Voltage Sense (batarya gerilimi -> gerilim bolucusu -> ADC)
+# Asagidaki degerler donanicilarin hesapladigi tahmini degerlerdir.
+# Power Module secildikten sonra Mission Planner kalibrasyonu yapilmali.
+define HAL_BATT_VOLT_PIN 14
+define HAL_BATT_CURR_PIN 15
+define HAL_BATT_VOLT_SCALE 0.5
+define HAL_BATT_CURR_SCALE 17.0
+
+env BUILD_ABIN True
+
+# ============================================================
+# ACIK SORULAR (donanim ekibine) - guncel BOM'a gore
+# ============================================================
+# 1. Barometre: BMP390 mi MS5611 mi kesinlesecek? (BOM'da ikisi de yaziyor)
+# 2. PE1 pin cakismasi: IMU2_DRDY ve UART8_TX ayni pinde (satir 91/144
+#    civarinda) - onceki taslaktan kalma hata, sematik onayinda duzeltilmeli
+# 3. PWM/ESC kanal sayisi ve pin haritasi netlesmedi (BOM'da tek
+#    'PWM connector' yaziyor, kac kanal oldugu belirtilmemis - 4 kanal
+#    placeholder olarak eklendi, motor sayisina gore degisebilir)
+# 4. 3. IMU eklenecek mi? (SPI1 bos bekliyor)
+# 5. Tum SPI SCK/MISO/MOSI pin numaralari (sematik onayi bekliyor)
+# 6. Tum CS/DRDY/LED/Safety pin numaralari (sematik onayi bekliyor)
+# 7. LP5907 EN pini hangi GPIO?
+# 8. Power Module modeli (batarya olcek kalibrasyonu icin)
+# 9. USB tek port mu (BOM'da 1 adet USB-C var) - mevcut hwdef'te OTG2
+#    'yedek' olarak tanimli, PCB'de gercekten var mi netlesmeli

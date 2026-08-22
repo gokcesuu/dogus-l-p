@@ -1,0 +1,49 @@
+# hw definition file for processing by chibios_hwdef.py
+# for DogusFC bootloader
+
+MCU STM32H7xx STM32H753xx
+
+# board ID. See Tools/AP_Bootloader/board_types.txt
+# TODO: gercek board ID Tools/AP_Bootloader/board_types.txt'e eklendikten
+# sonra guncellenmeli - simdilik ana hwdef.dat'taki APJ_BOARD_ID ile ayni
+APJ_BOARD_ID 1100
+
+USB_VENDOR 0x1209
+USB_PRODUCT 0x5741
+USB_STRING_MANUFACTURER "Dogus University LOP"
+
+# HSE kristal: ABM3B-8.000MHZ
+OSCILLATOR_HZ 8000000
+
+FLASH_SIZE_KB 2048
+
+# bootloader sifir offsette
+FLASH_RESERVE_START_KB 0
+
+# H753 128k sektor - firmware'in yuklenecegi yer
+FLASH_BOOTLOADER_LOAD_KB 128
+
+define HAL_LED_ON 0
+
+# USB + Telem1 uzerinden bootloading
+SERIAL_ORDER OTG1 USART2
+
+PA11 OTG_FS_DM OTG1
+PA12 OTG_FS_DP OTG1
+
+PA13 JTMS-SWDIO SWD
+PA14 JTCK-SWCLK SWD
+
+# Telem1
+PD5 USART2_TX USART2 NODMA
+PD6 USART2_RX USART2 NODMA
+
+# Status LED (ana hwdef.dat ile ayni pin)
+PE12 LED_BOOTLOADER OUTPUT HIGH OPENDRAIN
+
+# CS pinlerini bootloader'da yuksek tutmak icin (ana hwdef.dat ile ayni)
+PC1  IMU1_CS CS
+PA4  IMU2_ACC_CS CS
+PD10 IMU2_GYRO_CS CS
+PD7  BARO_CS CS
+PF6  FRAM_CS CS SPEED_VERYLOW
