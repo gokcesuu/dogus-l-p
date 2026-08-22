@@ -116,7 +116,25 @@ class AnalyticsCollector:
         self._last_mode: Optional[str] = None
         self._last_lat_home: Optional[float] = None
         self._last_lon_home: Optional[float] = None
-    
+
+    def reset(self):
+        """Yeni uçuş/bağlantı için metrikleri ve iç durumu sıfırlar."""
+        nominal_v = self.metrics._battery_voltage_nominal
+        cell_count = self.metrics._cell_count
+        self.metrics.reset()
+        self.metrics._battery_voltage_nominal = nominal_v
+        self.metrics._cell_count = cell_count
+
+        self._ekf_error_active = False
+        self._ekf_error_start_s = 0.0
+        self._rc_loss_active = False
+        self._rc_loss_start_s = 0.0
+        self._gps_loss_active = False
+        self._gps_loss_start_s = 0.0
+        self._last_mode = None
+        self._last_lat_home = None
+        self._last_lon_home = None
+
     def update_from_dict(self, data: Dict, timestamp_s: float = 0.0):
         """
         Tek bir telemetri örneğini işle (CSV row veya live VFR/GPS/Batarya).

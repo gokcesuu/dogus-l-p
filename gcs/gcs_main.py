@@ -1491,7 +1491,7 @@ class AnaPencere(QMainWindow):
         self._baglanti_giris.setStyleSheet(
             f"QLineEdit {{ background:{KOKPIT_ZEMIN}; color:{KOKPIT_VURGU2}; "
             f"border:1px solid {KOKPIT_KENAR}; border-radius:4px; "
-            "padding:2px 8px; font-family:'Courier New'; font-size:12px; }}"
+            "padding:2px 8px; font-family:'Courier New'; font-size:12px; }"
             f"QLineEdit:focus {{ border-color:{KOKPIT_VURGU}; }}"
         )
         duz.addWidget(self._baglanti_giris)
@@ -1502,7 +1502,7 @@ class AnaPencere(QMainWindow):
         self._baglan_btn.setStyleSheet(
             f"QPushButton {{ background:{KOKPIT_VURGU}; color:#12202c; "
             "border:none; border-radius:4px; "
-            "font-weight:bold; font-size:11px; }}"
+            "font-weight:bold; font-size:11px; }"
             f"QPushButton:hover {{ background:{KOKPIT_VURGU2}; }}"
             "QPushButton:pressed { background:#7ea6c9; }"
         )
@@ -2760,9 +2760,9 @@ class AnaPencere(QMainWindow):
         self._log_tablo.setAlternatingRowColors(True)
         self._log_tablo.setStyleSheet(
             f"QTableWidget {{ background:{KOKPIT_ZEMIN}; color:#bdd8f2; gridline-color:{KOKPIT_PANEL}; "
-            "font-family:'Barlow',sans-serif; }}"
+            "font-family:'Barlow',sans-serif; }"
             f"QHeaderView::section {{ background:{KOKPIT_PANEL}; color:#7e9cb8; padding:4px; "
-            "font-family:'Barlow Condensed',sans-serif; font-weight:600; }}"
+            "font-family:'Barlow Condensed',sans-serif; font-weight:600; }"
             f"QTableWidget::item:alternate {{ background:#111c26; }}"
             "QTableWidget::item:selected { background:rgba(148,188,227,0.18); }"
         )
@@ -2994,7 +2994,7 @@ class AnaPencere(QMainWindow):
         self._wp_def_alt.setToolTip("Yeni waypoint'lerin varsayılan irtifası")
         self._wp_def_alt.setStyleSheet(
             f"QSpinBox {{ background:{KOKPIT_PANEL}; color:#bdd8f2; border:1px solid {KOKPIT_KENAR};"
-            " border-radius:3px; padding:1px 4px; }}"
+            " border-radius:3px; padding:1px 4px; }"
         )
         self._wp_def_alt.valueChanged.connect(
             lambda v: self._js(f"wpDefAltGuncelle({v});")
@@ -3010,7 +3010,7 @@ class AnaPencere(QMainWindow):
         self._wp_radius.setToolTip("Waypoint kabul yarıçapı (MAVLink param 1)")
         self._wp_radius.setStyleSheet(
             f"QSpinBox {{ background:{KOKPIT_PANEL}; color:#bdd8f2; border:1px solid {KOKPIT_KENAR};"
-            " border-radius:3px; padding:1px 4px; }}"
+            " border-radius:3px; padding:1px 4px; }"
         )
         _ayar_satir.addWidget(self._wp_radius)
 
@@ -3084,10 +3084,10 @@ class AnaPencere(QMainWindow):
         self._wp_tablo.setAlternatingRowColors(True)
         self._wp_tablo.setStyleSheet(
             f"QTableWidget {{ background:{KOKPIT_ZEMIN}; color:#bdd8f2; font-size:12px; "
-            "font-family:'Barlow',sans-serif; gridline-color:rgba(148,188,227,0.08); }}"
+            "font-family:'Barlow',sans-serif; gridline-color:rgba(148,188,227,0.08); }"
             f"QHeaderView::section {{ background:{KOKPIT_PANEL}; color:#627d98; padding:6px 4px; "
             "font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:11px; "
-            "border:none; }}"
+            "border:none; }"
             "QTableWidget::item:alternate { background:rgba(17,28,38,0.5); }"
             "QTableWidget::item:selected { background:rgba(148,188,227,0.14); }"
         )
