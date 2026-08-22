@@ -2901,8 +2901,8 @@ class AnaPencere(QMainWindow):
         self._wp_tablo.setStyleSheet(
             f"QTableWidget {{ background:{KOKPIT_ZEMIN}; color:#bdd8f2; font-size:12px; "
             "font-family:'Barlow',sans-serif; gridline-color:rgba(148,188,227,0.08); }}"
-            f"QHeaderView::section {{ background:{KOKPIT_PANEL}; color:#627d98; padding:6px; "
-            "font-family:'Barlow Condensed',sans-serif; font-weight:600; letter-spacing:0.1em; "
+            f"QHeaderView::section {{ background:{KOKPIT_PANEL}; color:#627d98; padding:6px 4px; "
+            "font-family:'Barlow Condensed',sans-serif; font-weight:600; font-size:11px; "
             "border:none; }}"
             "QTableWidget::item:alternate { background:rgba(17,28,38,0.5); }"
             "QTableWidget::item:selected { background:rgba(148,188,227,0.14); }"
@@ -5691,6 +5691,17 @@ class AnaPencere(QMainWindow):
         # 1500ms sonra (Chromium'un geçerli HWND'ye ihtiyacı olduğu için) yüklenir.
         if HARITA_MEVCUT and not self._harita_tab_hazir:
             QTimer.singleShot(1500, self._harita_tab_yukle)
+
+    def resizeEvent(self, event):
+        """
+        Pencere yeniden boyutlanınca (maximize, sürükle-büyüt vb.) haritanın
+        iç #map div'i eski (küçük) boyutta kalmasın diye yeniden senkronlanır.
+        Eskiden bu sadece harita ilk yüklenirken 300/800ms'de bir kez
+        yapılıyordu — pencere sonradan büyürse harita küçük kalıyordu.
+        """
+        super().resizeEvent(event)
+        if HARITA_MEVCUT and getattr(self, "_harita_hazir", False):
+            self._harita_boyut_duzelt()
 
     def closeEvent(self, event):
         # Timer'ları durdur
