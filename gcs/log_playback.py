@@ -106,7 +106,7 @@ class LogOynatici(QObject):
             
             # Analytics'i güncelle (oynatma sırasında)
             if hasattr(g, '_analytics'):
-                timestamp_s = self._f(s, "timestamp_s", 0.0)
+                timestamp_s = self._f(s, "zaman", 0.0)
                 analytics_dict = extract_csv_row_to_dict(s)
                 g._analytics.update_from_dict(analytics_dict, timestamp_s)
                 if g._analytics_panel:

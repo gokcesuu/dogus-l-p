@@ -784,6 +784,7 @@ class MAVLinkBaglantisi(QThread):
         self._mission_yukle_durumu = {
             "wp_listesi": wp_listesi,
             "gonderilen": set(),
+            "toplam": toplam,
             "bitis": time.monotonic() + 15.0,
         }
 
@@ -849,9 +850,23 @@ class MAVLinkBaglantisi(QThread):
             )
 
     def _isle_mission_ack(self, msg):
-        """MISSION_ACK geldiğinde yükleme sonucunu bildirir ve durumu temizler."""
-        if self._mission_yukle_durumu is None:
+        """MISSION_ACK geldiğinde yükleme sonucunu bildirir ve durumu temizler.
+
+        ÖNEMLİ: mission_clear_all_send() de ArduPilot'tan kendi MISSION_ACK'ını
+        tetikler. Bu ACK, mission_count_send()'den SONRA (ağ/kuyruk gecikmesi
+        yüzünden) gelirse, henüz tek bir MISSION_REQUEST/ITEM alışverişi
+        olmadan "yükleme başarılı" sanılıp durum temizlenebiliyordu — gerçek
+        yükleme hiç gerçekleşmeden ✓ mesajı basılıyordu (drone'da 0 waypoint
+        kalıyordu). ArduPilot, tüm item'ları istemeden ASLA gerçek transfer-
+        tamamlandı ACK'ı göndermez; bu yüzden "gonderilen" seti tüm seq'leri
+        kapsamıyorsa bu ACK'ı yok sayıp durumu canlı tutuyoruz — böylece
+        gerçek MISSION_REQUEST'ler hâlâ işlenmeye devam edebiliyor.
+        """
+        durum = self._mission_yukle_durumu
+        if durum is None:
             return   # bu ACK bizim yükleme akışımızla ilgili değil
+        if len(durum["gonderilen"]) < durum["toplam"]:
+            return   # muhtemelen mission_clear_all'ın gecikmeli ACK'ı — yok say
         ok = (msg.type == 0)   # MAV_MISSION_ACCEPTED = 0
         msg_str = "Görev yüklendi ✓" if ok else f"Drone hatası: {msg.type}"
         self.mission_yuklendi.emit(ok, msg_str)

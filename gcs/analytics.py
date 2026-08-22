@@ -336,31 +336,48 @@ class AnalyticsCollector:
 def extract_csv_row_to_dict(row: Dict[str, str]) -> Dict:
     """
     gcs_logger.py'nin CSV satırını analytics dict'e çevir.
+
+    gcs_logger.py'nin gerçek CSV sütun adları Türkçe (zaman, irtifa, hiz,
+    bat_volt, bat_yuzde, ruzgar_ms, imu0_c, mod_id, ekf_hata, ...) —
+    aşağıdaki eşleme, gcs_main.py'nin canlı telemetri yolunda kullandığı
+    aynı Türkçe→İngilizce çeviriyi CSV replay için de uygular.
     """
-    out = {}
-    
-    try:
-        out["timestamp_s"] = float(row.get("timestamp_s", 0))
-    except (ValueError, KeyError):
-        out["timestamp_s"] = 0.0
-    
-    for key in ["lat", "lon", "alt_agl_m", "climb_rate_ms", "speed_ms", 
-                "gps_speed_ms", "battery_volt", "battery_percent", 
-                "battery_current_a", "wind_speed_ms", "imu0_temp", 
-                "imu1_temp", "imu2_temp", "mode", "vibration"]:
+    def _flt(anahtar):
         try:
-            out[key] = float(row.get(key, "")) if row.get(key) else None
+            deger = row.get(anahtar, "")
+            return float(deger) if deger not in (None, "") else None
         except (ValueError, TypeError):
-            out[key] = None
-    
-    # RC/GPS/EKF durumu
-    out["rc_lost"] = row.get("rc_lost", "").lower() == "true"
-    out["ekf_error"] = row.get("ekf_error", "").lower() in ("true", "1")
+            return None
+
+    out = {}
+    out["timestamp_s"] = _flt("zaman") or 0.0
+
+    out["lat"] = _flt("lat")
+    out["lon"] = _flt("lon")
+    out["alt_agl_m"] = _flt("irtifa")
+    out["climb_rate_ms"] = _flt("dikey_hiz")
+    out["speed_ms"] = _flt("hiz")
+    out["gps_speed_ms"] = None   # ayrı bir GPS-hız sütunu yok, VFR hızı kullanılıyor
+    out["battery_volt"] = _flt("bat_volt")
+    out["battery_percent"] = _flt("bat_yuzde")
+    out["battery_current_a"] = _flt("bat_amper")
+    out["wind_speed_ms"] = _flt("ruzgar_ms")
+    out["imu0_temp"] = _flt("imu0_c")
+    out["imu1_temp"] = _flt("imu1_c")
+    out["imu2_temp"] = _flt("imu2_c")
+    out["vibration"] = None   # gcs_logger.py CSV'sinde titreşim sütunu yok
+
+    # RC kaybı CSV'de tutulmuyor (canlı yolda da MAVLink handler'ından geliyor)
+    out["rc_lost"] = False
+    # ekf_hata bir hata metriği (float) — canlı yoldaki 0.8 eşiğiyle aynı mantık
+    ekf_hata = _flt("ekf_hata")
+    out["ekf_error"] = bool(ekf_hata is not None and ekf_hata > 0.8)
+
     try:
-        out["gps_fix"] = int(row.get("gps_fix", 0))
+        out["gps_fix"] = int(float(row.get("gps_fix", 0) or 0))
     except (ValueError, TypeError):
         out["gps_fix"] = 0
-    
-    out["mode"] = row.get("mode")  # String
-    
+
+    out["mode"] = row.get("mod_id")   # mode değişimi sayımı için mod_id yeterli
+
     return out
