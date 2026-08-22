@@ -58,7 +58,7 @@ USB_STRING_MANUFACTURER "Dogus University LOP"
 # UART8   -> GPS2
 # OTG2    -> USB2 (yedek)
 # ============================================================
-SERIAL_ORDER OTG1 USART2 USART3 UART4 UART8 UART7 OTG2
+SERIAL_ORDER OTG1 USART2 USART3 UART4 UART8 OTG2
 
 # ============================================================
 # PIN TANIMLARI
@@ -223,7 +223,10 @@ define HAL_EKF_IMU_MASK_DEFAULT 3
 # ============================================================
 # BAROMETER
 # ============================================================
-BARO BMP390 SPI:bmp390
+# NOT: Fiziksel cip BMP390, ama ArduPilot'ta ayri bir AP_Baro_BMP390
+# surucusu yok - BMP388 ile register uyumlu oldugu icin resmi kartlar da
+# (orn. Airvolute-DCS2) ayni sekilde BMP388 surucusunu kullaniyor.
+BARO BMP388 SPI:bmp390
 
 # ============================================================
 # PUSULALAR

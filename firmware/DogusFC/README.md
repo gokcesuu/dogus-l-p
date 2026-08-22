@@ -4,9 +4,21 @@ Bu klasör, DogusFC uçuş kontrol kartının ArduPilot (ChibiOS) board tanım
 dosyalarını içerir. BOM'a göre hazırlanmış ve ArduPilot'un kendi parser'ı
 (`chibios_hwdef.py`) ile pin çakışması olmadığı doğrulanmıştır.
 
-**Durum: Statik olarak doğrulandı, GERÇEK DONANIMDA TEST EDİLMEDİ**
-(kart henüz üretilmedi). Bootloader `.bin` dosyası da henüz derlenip
-flaşlanmadı.
+**Durum: Uçtan uca DERLENİYOR (bootloader + ana firmware), GERÇEK DONANIMDA
+HENÜZ TEST EDİLMEDİ** (kart henüz üretilmedi).
+
+`./waf configure --board DogusFC && ./waf bootloader && ./waf copter`
+gerçekten çalıştırılıp doğrulandı:
+- `Tools/bootloaders/DogusFC_bl.bin` — 20228 B flash
+- `build/DogusFC/bin/arducopter.bin` — 1.498.448 B flash kullanılan, 467.620 B boş
+
+Bu derleme sırasında statik parser'ın yakalamadığı **2 gerçek hata** bulunup
+düzeltildi:
+1. `SERIAL_ORDER`'da hiçbir pine atanmamış bir `UART7` girdisi vardı —
+   derleyici `SD7` sürücüsünü bulamayıp hata veriyordu.
+2. `BARO BMP390` yazılmıştı ama ArduPilot'ta böyle bir sürücü sınıfı yok —
+   BMP390, register uyumlu olduğu için resmi kartlarda da (örn.
+   Airvolute-DCS2) `BARO BMP388` sürücüsüyle kullanılıyor.
 
 ## Dosyalar
 - `hwdef.dat` — ana firmware board tanımı (dual IMU: ICM-42688-P + BMI088
@@ -24,11 +36,9 @@ git clone --recurse-submodules https://github.com/ArduPilot/ardupilot.git
 cp firmware/DogusFC/*.dat firmware/DogusFC/*.inc firmware/DogusFC/*.parm \
    ardupilot/libraries/AP_HAL_ChibiOS/hwdef/DogusFC/
 cd ardupilot
-python libraries/AP_HAL_ChibiOS/hwdef/scripts/chibios_hwdef.py \
-  libraries/AP_HAL_ChibiOS/hwdef/DogusFC/hwdef.dat  # statik doğrulama
+python3 Tools/scripts/build_bootloaders.py DogusFC   # -> Tools/bootloaders/DogusFC_bl.bin
 ./waf configure --board DogusFC
-./waf copter   # ana firmware derlemesi
-./waf bootloader   # bootloader derlemesi (henüz denenmedi)
+./waf copter                                          # -> build/DogusFC/bin/arducopter.bin
 ```
 
 ## Bilinen Donanım Riskleri (PCB/Şematik Ekibine)
