@@ -17,15 +17,12 @@ dogus-lop-gcs/
 │   ├── ui_widgets.py                 ← Özel arayüz bileşenleri (yapay ufuk, batarya barı)
 │   ├── gcs_logger.py                 ← Thread-safe CSV uçuş logu yazıcısı
 │   ├── config_yukleyici.py           ← config.json okuyucu (noktalı yol erişimi)
-│   ├── sifreleme.py                  ← AES-256-GCM şifreli MAVLink katmanı
-│   ├── anahtar_olustur.py            ← GCS ↔ Pi bağlantı anahtarı üreteci
 │   ├── fence_yukle.py                ← AC_Fence dikdörtgen/çokgen yükleme aracı
 │   ├── rally_yukle.py                ← Rally noktası yükleme aracı
 │   ├── param_yukle.py                ← ArduPilot parametre yedekleme / geri yükleme
 │   ├── terrain_analiz.py             ← Çok katmanlı güvenli iniş noktası analizörü
 │   ├── alan_inis_karar.py            ← Uçuş alanı iniş uygunluğu karar motoru
 │   ├── ucus_alani_hazirla.py         ← DEM indirme + arazi analizi + fence yükleme
-│   ├── pi_karar_dongusu.py           ← Raspberry Pi'de çalışan otonom karar döngüsü
 │   ├── ucus_raporu.py                ← Uçuş sonrası HTML rapor üreteci
 │   ├── ucus_raporlayici.py           ← Rapor arayüz entegrasyonu
 │   ├── geo_import.py                 ← SHP/KML'den geofence polygon içe aktarma
@@ -46,10 +43,7 @@ dogus-lop-gcs/
 ├── tests/                            ← Otomatik testler
 │   ├── conftest.py                   ← pytest fikstürleri
 │   ├── test_terrain_analiz.py        ← Terrain analiz birim testleri
-│   ├── test_sifreleme.py             ← AES-256 şifreleme testleri
-│   ├── sitl_senaryo_test.py          ← SITL entegrasyon senaryoları
-│   └── sitl_aes256_test.py           ← Şifreli bağlantı SITL testi
-├── pi_kopru.py                       ← Raspberry Pi şifreli MAVLink köprüsü
+│   └── sitl_senaryo_test.py          ← SITL entegrasyon senaryoları
 ├── config.json                       ← Merkezi konfigürasyon (tüm eşikler burada)
 ├── docs/
 │   └── SITL_KURULUM.md               ← SITL kurulum rehberi (detaylı)
@@ -142,15 +136,6 @@ python gcs/ucus_alani_hazirla.py --alan 40.9 41.0 28.8 28.9 --fence-yukle tcp:12
 # Rally noktası yükle
 python gcs/rally_yukle.py --noktalar rally.json
 ```
-
-### Raspberry Pi Köprüsü (`pi_kopru.py`)
-
-- Seri port (UART) ↔ TCP köprüsü
-- AES-256-GCM şifreli tünel
-- config.json'dan port/baud/anahtar okur
-- Otomatik yeniden bağlantı
-
----
 
 ## Kurulum
 
@@ -361,20 +346,14 @@ pytest tests/ -v
 | Test Dosyası              | Ne Test Eder                                       |
 | -------------------------- | -------------------------------------------------- |
 | `test_terrain_analiz.py` | Güvenli iniş noktası skoru, OSM engel kontrolü |
-| `test_sifreleme.py`      | AES-256-GCM şifreleme/çözme                     |
 | `sitl_senaryo_test.py`   | RTL, rüzgar, batarya, GPS kaybı senaryoları     |
-| `sitl_aes256_test.py`    | Şifreli Pi köprüsü uçtan uca testi            |
 
 ---
 
 ## MAVLink Test Aracı
 
 ```powershell
-# SITL bağlantısı
 python gcs/tools/mavlink_probe.py --conn udp:127.0.0.1:14550 --duration 10
-
-# Şifreli TCP (Pi köprüsü)
-python gcs/tools/mavlink_probe.py --conn tcp:PI_IP:5760 --key gcs_anahtar.key --duration 10
 ```
 
 ---
@@ -390,7 +369,6 @@ python gcs/tools/mavlink_probe.py --conn tcp:PI_IP:5760 --key gcs_anahtar.key --
 | Terrain analizi         | numpy, rasterio, scipy               |
 | OSM engel kontrolü     | overpy                               |
 | DEM indirme             | boto3, pystac-client (Copernicus S3) |
-| Şifreleme              | cryptography (AES-256-GCM)           |
 | Geofence dosya okuma    | pyshp (SHP), stdlib xml (KML)         |
 | Uçuş yazılımı      | ArduPilot (açık kaynak)            |
 | Simülatör             | ArduPilot SITL + MAVProxy            |

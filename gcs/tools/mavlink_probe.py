@@ -1,83 +1,14 @@
 """
 Minimal MAVLink probe for quick connection testing.
 
-Usage examples:
+Usage example:
   python mavlink_probe.py --conn udp:127.0.0.1:14550
-  python mavlink_probe.py --conn tcp:PI_IP:5760 --key C:\\path\\gcs_anahtar.key
 """
 
 import argparse
-import os
-import socket
-import sys
-import threading
 import time
 
 from pymavlink import mavutil
-
-
-def _parse_tcp(conn: str) -> tuple[str, int]:
-    host_port = conn.replace("tcp:", "", 1)
-    parts = host_port.split(":")
-    if len(parts) != 2:
-        raise ValueError(f"Invalid tcp connection string: {conn}")
-    return parts[0], int(parts[1])
-
-
-def _start_encrypted_proxy(conn: str, key_path: str, proxy_port: int, verbose: bool) -> str:
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    sys.path.insert(0, root_dir)
-
-    from sifreleme import SifreliKanal, PaketToplama, anahtari_yukle
-
-    host, port = _parse_tcp(conn)
-    key = anahtari_yukle(key_path)
-    channel = SifreliKanal(key)
-
-    tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp_sock.connect((host, port))
-
-    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_sock.bind(("127.0.0.1", proxy_port))
-
-    gcs_addr = {"value": None}
-    collector = PaketToplama()
-
-    def tcp_to_udp():
-        while True:
-            try:
-                data = tcp_sock.recv(65536)
-                if not data:
-                    break
-                for packet in collector.veri_ekle(data):
-                    try:
-                        plain = channel.coz(packet)
-                        if gcs_addr["value"]:
-                            udp_sock.sendto(plain, gcs_addr["value"])
-                    except Exception as exc:
-                        if verbose:
-                            print(f"[proxy] decrypt error: {exc}")
-            except Exception as exc:
-                if verbose:
-                    print(f"[proxy] tcp recv error: {exc}")
-                break
-
-    def udp_to_tcp():
-        while True:
-            try:
-                data, addr = udp_sock.recvfrom(65536)
-                gcs_addr["value"] = addr
-                enc = channel.sifrele(data)
-                tcp_sock.sendall(enc)
-            except Exception as exc:
-                if verbose:
-                    print(f"[proxy] udp recv error: {exc}")
-                break
-
-    threading.Thread(target=tcp_to_udp, daemon=True).start()
-    threading.Thread(target=udp_to_tcp, daemon=True).start()
-
-    return f"udp:127.0.0.1:{proxy_port}"
 
 
 def _format_text(value) -> str:
@@ -98,22 +29,9 @@ def main() -> int:
                         help="Heartbeat wait timeout in seconds.")
     parser.add_argument("--verbose", action="store_true",
                         help="Print all message types.")
-    parser.add_argument("--key", default=None,
-                        help="AES key file for encrypted TCP (Pi bridge).")
-    parser.add_argument("--proxy-port", type=int, default=14561,
-                        help="Local UDP proxy port for encrypted TCP.")
     args = parser.parse_args()
 
     conn = args.conn
-    if args.key:
-        if not conn.startswith("tcp:"):
-            print("--key requires tcp:HOST:PORT connection.")
-            return 2
-        try:
-            conn = _start_encrypted_proxy(conn, args.key, args.proxy_port, args.verbose)
-        except Exception as exc:
-            print(f"Encrypted proxy failed: {exc}")
-            return 2
 
     try:
         mav = mavutil.mavlink_connection(conn, autoreconnect=False, source_system=255)

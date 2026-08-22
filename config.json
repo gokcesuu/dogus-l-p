@@ -2,19 +2,7 @@
   "_aciklama": "Doğuş Üniversitesi LÖP – GCS Merkezi Konfigürasyon",
 
   "baglanti": {
-    "varsayilan_dize": "tcp:127.0.0.1:5762",
-    "proxy_port": 14560,
-    "sifreli_port": 5760,
-    "anahtar_dosya": "~/dogus-gcs/gcs_anahtar.key"
-  },
-
-  "pi_kopru": {
-    "dinle_host": "0.0.0.0",
-    "dinle_port": 5760,
-    "seri_port": "/dev/ttyAMA0",
-    "seri_baud": 115200,
-    "anahtar_dosya": "~/dogus-gcs/gcs_anahtar.key",
-    "tampon_boyut": 4096
+    "varsayilan_dize": "tcp:127.0.0.1:5762"
   },
 
   "batarya": {
