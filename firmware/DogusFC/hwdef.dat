@@ -117,6 +117,11 @@ PF6  FRAM_CS   CS SPEED_VERYLOW
 # --- PWM/ESC cikislari (IOMCU YOK - dogrudan STM32H753 timer) ---
 # TODO: BOM'da tek 'PWM connector' var - kanal sayisi/pin haritasi
 # donanim sematik onayindan sonra netlesecek. 4 kanal placeholder:
+# DONANIM UYARISI (FCU_Tasarim_ve_Entegrasyon_Kilavuzu.pdf, madde 3):
+# Bu pinler ESC/motor konnektorune DOGRUDAN gitmemeli - hatlara seri
+# 33 Ohm - 100 Ohm sonumleme direnci eklenmeli, ESC besleme hatlari
+# FCU'nun 3.3V hattina kesinlikle temas etmemeli. Bu bir PCB/sematik
+# konusu, hwdef.dat seviyesinde cozulemez - donanim ekibine iletildi.
 PC6  TIM8_CH1 TIM8 PWM(1) GPIO(50)
 PC7  TIM8_CH2 TIM8 PWM(2) GPIO(51)
 PD12 TIM4_CH1 TIM4 PWM(3) GPIO(52)

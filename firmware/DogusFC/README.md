@@ -31,8 +31,43 @@ python libraries/AP_HAL_ChibiOS/hwdef/scripts/chibios_hwdef.py \
 ./waf bootloader   # bootloader derlemesi (henüz denenmedi)
 ```
 
-## Kart üretildikten sonra yapılacaklar
-1. PCB'de SWD header (4 pin: SWDIO/SWCLK/GND/3.3V) olduğundan emin ol
-2. ST-Link/J-Link ile bootloader'ı `0x08000000`'a flaşla
-3. USB üzerinden ana firmware'i yükle (bootloader artık DFU/MAVLink upload kabul eder)
-4. GCS'den (`../gcs/`) bağlanıp Pre-Arm kontrol listesini çalıştır
+## Bilinen Donanım Riskleri (PCB/Şematik Ekibine)
+
+`FCU_Tasarim_ve_Entegrasyon_Kilavuzu.pdf` referans alınarak:
+
+1. **Harici manyetometre zorunlu** — kartta dahili pusula yok, yön kestirimi
+   için harici GPS modülü içine entegre (I2C) manyetometre kullanılmalı.
+2. **Tek işlemcili RC/PWM yönetimi** — IOMCU (STM32F103) kaldırıldığı için
+   RC alıcı (S.Bus/CRSF/DSM) doğrudan STM32H753 UART'ına bağlanmalı;
+   S.Bus kullanılacaksa UART donanımının dahili Invert özelliği aktifleştirilmeli.
+3. **PWM port izolasyonu** — ESC/motor sinyal hatlarına seri **33 Ω – 100 Ω**
+   sönümleme direnci eklenmeli, ESC besleme hattı FCU'nun 3.3V hattına
+   **kesinlikle temas etmemeli**. (`hwdef.dat`'ta PWM tanımlarının yanına
+   yorum olarak da not düşüldü — bu satırlar PCB seviyesinde çözülür.)
+
+## Kart Üretildikten Sonra — 7 Aşamalı Bring-Up Yol Haritası
+
+`FCU_Yazilim_ve_Firmware_Entegrasyon_Kilavuzu.pdf` referans alınarak,
+sıfırdan ilk güvenli test uçuşuna kadar:
+
+| # | Aşama | Amaç | Geçiş Kriteri |
+|---|-------|------|----------------|
+| 1 | **Güç Katmanı & LDO Doğrulaması** | Kısa devre yok, TPS62132/LP5907 çıkışları doğru | 3.3V ±%1, <10mV ripple, <50mA bekleme akımı |
+| 2 | **MCU Bring-Up & Bootloader** | SWD ile uyandırma, osilatör testi, bootloader flaşlama | USB takılınca kart DFU/VCP olarak tanınıyor |
+| 3 | **Dahili Sensörler & Hafıza Bus Testleri** | SPI sensörlerinin WHO_AM_I okunması, FRAM/SDMMC doğrulama | Sensörler %0 bus hatasıyla 1-2 kHz'de okunuyor |
+| 4 | **Harici Portlar & Çevre Birimleri** | GNSS+Pusula, RC, telemetri, CAN doğrulama | EKF "Good", GPS 3D Fix |
+| 5 | **Gövde Entegrasyonu & Failsafe** (⚠️ pervanesiz) | Motor/ESC bağlama, RC kaybı/düşük pil/kill-switch testi | Tüm failsafe senaryoları masa başında %100 başarılı |
+| 6 | **Tethered (İple Sabitlenmiş) Yer Testi** | Pervaneli kapalı çevrim kontrolü güvenle sınırlama | Kararlı itki, titreşim <15 m/s² |
+| 7 | **İlk Serbest Test Uçuşu (Maiden Flight)** | Bağımsız uçuş kararlılığı | Titreşimsiz hover, EKF inovasyon sınırda, güvenli iniş |
+
+**Altın kurallar**: pervanesiz test kuralına asla istisna yok · sürücüler
+non-blocking (DMA/interrupt) olmalı, `while(!ready)` gibi bloklayan kod
+400 Hz kontrol döngüsünü kilitler · CPU yükü (`PM: Load`) MAVLink
+üzerinden %60'ın altında tutulmalı, bağımsız donanımsal watchdog (IWDG)
+100ms içinde güvenli moda geçirir.
+
+## Referans Kaynaklar
+Bu README, ekibe iletilen iki mühendislik kılavuzuna dayanıyor (repoya eklenmedi,
+harici belge olarak saklanıyor):
+- *FCU Tasarım ve Entegrasyon Kılavuzu* — donanım mimarisi, risk analizi
+- *FCU Yazılım ve Firmware Entegrasyon Kılavuzu* — firmware katmanları, derleme adımları, yazılım test aşamaları
