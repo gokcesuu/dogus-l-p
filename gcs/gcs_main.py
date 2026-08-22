@@ -2881,6 +2881,14 @@ class AnaPencere(QMainWindow):
 
         _ayar_satir.addSpacing(8)
 
+        _fence_import_btn = QPushButton("Fence İçe Aktar")
+        _fence_import_btn.setFixedHeight(24)
+        _fence_import_btn.setToolTip("SHP veya KML dosyasından geofence polygon'u içe aktar")
+        _fence_import_btn.clicked.connect(self._fence_dosyadan_yukle)
+        _ayar_satir.addWidget(_fence_import_btn)
+
+        _ayar_satir.addSpacing(8)
+
         self._wp_home_lbl = QLabel("Ev: —")
         self._wp_home_lbl.setStyleSheet("color:#7eb8e0; font-size:11px;")
         self._wp_home_lbl.setToolTip("Drone ev konumu (GPS fix alındığında güncellenir)")
@@ -4000,6 +4008,17 @@ class AnaPencere(QMainWindow):
         self._mesaj_logu.append(f'<span style="color:{renk}">[{zaman}] {metin}</span>')
         self._logger.kaydet_mesaj(severity, metin)
 
+        # ── Akıllı uyarı yönlendirmesi ──────────────────────────────────────
+        # critical (0-1): sesli uyarı + status bar'da görünür kalıcı uyarı
+        # warning/info (2-7): sadece renkli log (mevcut davranış, değişmedi)
+        if severity <= 1:
+            simdi = time.monotonic()
+            if simdi - getattr(self, "_son_kritik_uyari_zamani", 0.0) > 8.0:
+                self._son_kritik_uyari_zamani = simdi
+                self._sesli_uyan(metin)
+                if hasattr(self, "_durum_bar"):
+                    self._durum_bar.showMessage(f"⚠ KRİTİK: {metin}", 6000)
+
     def _rtl_fallback_tetiklendi(self, neden: str):
         self._mesaj_ekle(2, f"RTL FALLBACK: {neden}")
         self._mesaj_ekle(3, "Güvenli iniş analizi otomatik başlatılıyor…")
@@ -4933,8 +4952,8 @@ class AnaPencere(QMainWindow):
         """RC_CHANNELS: sinyal gücü ve failsafe durumu."""
         if failsafe and not self._rc_failsafe_aktif:
             self._rc_failsafe_aktif = True
+            # _mesaj_ekle(severity<=1) artık otomatik sesli uyarı veriyor
             self._mesaj_ekle(1, "⚠ RC SİNYAL KAYBI — failsafe aktif!")
-            self._sesli_uyan("R C sinyal kayıp")
         elif not failsafe and self._rc_failsafe_aktif:
             self._rc_failsafe_aktif = False
             self._mesaj_ekle(4, "RC sinyali geri geldi.")
@@ -4975,8 +4994,8 @@ class AnaPencere(QMainWindow):
             return   # aynı ihlali tekrar loglama
         self._fence_ihlal_son = durum
         tur = self._FENCE_TUR_TR.get(durum, f"bilinmeyen durum={durum}")
+        # _mesaj_ekle(severity<=1) artık otomatik sesli uyarı veriyor
         self._mesaj_ekle(1, f"🚧 GEOFENCE İHLALİ: {tur}!")
-        self._sesli_uyan(f"Geofence ihlali")
         self._js(f"durumGoster('🚧 GEOFENCE İHLALİ: {tur}!');")
 
     def _ev_noktasi_guncelle(self, lat: float, lon: float, alt: float):
@@ -5472,6 +5491,37 @@ class AnaPencere(QMainWindow):
             )
 
     # ── AC_Fence yükleme ──────────────────────────────────────────────────────
+
+    def _fence_dosyadan_yukle(self):
+        """
+        SHP/KML dosyasından geofence polygon'u içe aktarır. Haritada elle
+        çizmenin (fenceBitir -> gcs://fence-cizildi) ALTERNATİFİ — aynı
+        _fence_noktalar değişkenini doldurur, JS tarafında zaten var olan
+        `fenceListeGoster` fonksiyonunu (drone'dan okunan fence'i haritada
+        göstermek için yazılmıştı) yeniden kullanır — yeni bir JS fonksiyonu
+        yazmaya gerek yok.
+        """
+        yol, _ = QFileDialog.getOpenFileName(
+            self, "Fence Dosyası Seç", "", "Fence Dosyaları (*.shp *.kml)"
+        )
+        if not yol:
+            return
+        try:
+            from geo_import import dosyadan_oku
+            noktalar = dosyadan_oku(yol)
+        except Exception as e:
+            self._mesaj_ekle(3, f"Fence içe aktarma hatası: {e}")
+            return
+
+        self._fence_noktalar = noktalar
+        import json as _json
+        json_str = _json.dumps(_json.dumps(noktalar))  # JS string literal olarak güvenli kaçış
+        self._js(f"fenceListeGoster({json_str});")
+        self._mesaj_ekle(
+            6,
+            f"📥 Fence içe aktarıldı: {len(noktalar)} köşe "
+            f"({os.path.basename(yol)}) — 'Fence Yükle' ile drone'a gönderin."
+        )
 
     def _fence_polygon_yukle(self):
         """
