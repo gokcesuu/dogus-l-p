@@ -19,7 +19,6 @@ dogus-lop-gcs/
 │   ├── config_yukleyici.py           ← config.json okuyucu (noktalı yol erişimi)
 │   ├── fence_yukle.py                ← AC_Fence dikdörtgen/çokgen yükleme aracı
 │   ├── rally_yukle.py                ← Rally noktası yükleme aracı
-│   ├── param_yukle.py                ← ArduPilot parametre yedekleme / geri yükleme
 │   ├── terrain_analiz.py             ← Çok katmanlı güvenli iniş noktası analizörü
 │   ├── alan_inis_karar.py            ← Uçuş alanı iniş uygunluğu karar motoru
 │   ├── ucus_alani_hazirla.py         ← DEM indirme + arazi analizi + fence yükleme
@@ -108,21 +107,11 @@ Katman 5 — Lua Scriptleri (ArduPilot üzerinde)
 - Güvenli iniş noktası skorlaması (eğim + OSM + rüzgar)
 - AC_Fence dikdörtgen çit otomatik yükleme (`--fence-yukle`)
 
-### Parametre Yönetimi (`param_yukle.py`)
+### Parametre Yönetimi
 
-```powershell
-# Tüm parametreleri yedekle
-python gcs/param_yukle.py yedekle --baglanti tcp:127.0.0.1:5762 --cikti yedek.json
-
-# Belirli prefix'leri yedekle
-python gcs/param_yukle.py yedekle --prefix BATT FS EKF
-
-# Geri yükle
-python gcs/param_yukle.py geri-yukle --json yedek.json
-
-# Yedek ile mevcut karşılaştır
-python gcs/param_yukle.py fark --json yedek.json
-```
+Parametre yedekleme/geri yükleme/karşılaştırma artık GCS arayüzünün **Parametreler**
+sekmesinden yapılıyor (Yedekle/Geri Yükle/Karşılaştır butonları) — ayrı bir CLI
+aracına gerek yok.
 
 ### Fence ve Rally Yükleme
 
