@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/industry-4838169b-a899-4ec2-a50f-4cdd19554017/styles.css">
+<script src="_ds/industry-4838169b-a899-4ec2-a50f-4cdd19554017/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.gstatic.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#f2f2f3; color:#1d1f20; font-family:"Barlow",system-ui,sans-serif; }
+  a { color:#416180; text-decoration:none; }
+  a:hover { color:#2c455d; }
+  ::selection { background:#b5d9fd; }
+  /* cockpit ground: the accent's own deep step, tokens remapped so the
+     system's components read correctly reversed onto it */
+  .cockpit {
+    --color-bg: var(--color-accent-900);
+    --color-surface: var(--color-accent-2-900);
+    --color-text: var(--color-neutral-200);
+    --color-divider: color-mix(in srgb, var(--color-accent-400) 26%, transparent);
+    --color-accent: var(--color-accent-400);
+    color: var(--color-text); font-family: var(--font-body);
+  }
+  .cockpit .btn {
+    font-family: var(--font-heading); font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap;
+    color: var(--color-accent-2-300);
+  }
+  .cockpit .btn-primary { color: var(--color-accent-900); border-color: var(--color-accent); }
+  .cockpit .btn-primary:hover { background: var(--color-accent-300); }
+  .cockpit .btn-primary:active { background: var(--color-accent-500); }
+  .cockpit .btn-secondary:hover { background: color-mix(in srgb, var(--color-accent-400) 12%, transparent); }
+  .cockpit .btn-secondary:active { background: color-mix(in srgb, var(--color-accent-400) 20%, transparent); }
+  /* safety semantics: the only non-accent hues in the system, reserved for
+     irreversible flight commands and alarm states */
+  .cockpit .btn[data-alarm] { background:#8f3b34; color:#f5f5f8; border-color:#c25b52; }
+  .cockpit .btn[data-alarm]:hover { background:#a8443c; }
+  .cockpit .btn[data-alarm-solid] { color:#c98b85; border:1px solid rgba(194,91,82,0.55); }
+  .cockpit .btn[data-alarm-solid]:hover { background: rgba(194,91,82,0.16); }
+  .cockpit .btn[data-alarm-outline] { color:#c98b85; border:1px dashed rgba(194,91,82,0.6); }
+  .cockpit .btn[data-alarm-outline]:hover { background: rgba(194,91,82,0.14); }
+  .cockpit .table th { color: var(--color-accent-2-500); font-family: var(--font-heading); }
+  .cockpit .table td { border-bottom-color: color-mix(in srgb, var(--color-accent-400) 8%, transparent); }
+  .cockpit .table tbody tr:hover { background: color-mix(in srgb, var(--color-accent-400) 7%, transparent); }
+  .cockpit .table tbody tr[aria-selected="true"] { background: color-mix(in srgb, var(--color-accent-400) 12%, transparent); color: var(--color-neutral-200); }
+</style>
+</helmet>
+
+<section style="padding:48px 56px 96px;display:flex;flex-direction:column;gap:28px">
+  <div style="display:flex;align-items:baseline;gap:16px;border-bottom:1px solid rgba(29,31,32,0.16);padding-bottom:12px">
+    <span style="font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;text-transform:uppercase;color:#5980a6">Tur 1</span>
+    <h1 style="margin:0;font:600 30px/1 'Barlow Condensed',sans-serif;letter-spacing:0.02em">Türkçe Yer İstasyonu — iki uçuş ekranı düzeni</h1>
+    <span style="font:400 14px/1.4 'Barlow',sans-serif;color:#5d5d60">1920×1080 · koyu kokpit zemini, Industry blueprint dili · <a href="#1c">1c</a>–<a href="#1g">1g</a> diğer ekranlar</span>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+    <!-- ══════════ 1a ══════════ -->
+    <div id="1a" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <span style="font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;background:#5980a6;color:#f2f2f3;padding:4px 9px">1A</span>
+        <span style="font:600 20px/1 'Barlow Condensed',sans-serif;letter-spacing:0.04em">Düzen A — sekmeli, mevcut düzenin cilalanmışı</span>
+        <span style="font:400 13px/1 'Barlow',sans-serif;color:#5d5d60">Harita sağ kolonda kalıcı; sekmeler yalnızca ikincil paneller için</span>
+      </div>
+
+      <div data-screen-label="1A Uçuş" class="cockpit" style="width:1920px;height:1080px;background:#1d2d3d;border:1px solid rgba(29,31,32,0.2);display:flex;flex-direction:column;overflow:hidden;font-family:'Barlow',sans-serif">
+
+        <!-- üst bar -->
+        <div style="height:54px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:center;gap:10px;padding:0 16px">
+          <span style="width:9px;height:9px;background:#8fbf7a;box-shadow:0 0 8px rgba(143,191,122,0.7)"></span>
+          <span style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#e7e7ea">LÖP YER İSTASYONU</span>
+          <span style="font:500 11px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;color:#627d98">v0.3 · DOĞUŞ ÜNİ</span>
+          <span style="width:1px;height:26px;background:rgba(148,188,227,0.22);margin:0 6px"></span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font:600 11px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;color:#7e9cb8">BAĞLANTI</span>
+            <div style="width:196px;height:30px;background:#111c26;border:1px solid rgba(148,188,227,0.28);display:flex;align-items:center;padding:0 9px;font:500 13px/1 'Barlow',sans-serif;color:#bdd8f2;letter-spacing:0.02em">tcp:127.0.0.1:5762</div>
+            <button style="height:30px;padding:0 18px;font-size:12px" class="btn btn-primary">BAĞLAN</button>
+            <button style="height:30px;padding:0 14px;font-size:12px" class="btn" data-alarm-solid="">KES</button>
+            <button style="height:30px;padding:0 14px;font-size:12px" class="btn btn-secondary">RAPOR</button>
+          </div>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:stretch;gap:8px;height:32px">
+            <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;border:1px solid rgba(148,188,227,0.3);padding:0 12px;background:rgba(148,188,227,0.06)">
+              <span style="font:600 9px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#7e9cb8">MOD</span>
+              <span style="font:700 14px/1 'Barlow Condensed',sans-serif;letter-spacing:0.08em;color:#bdd8f2">LOITER</span>
+            </div>
+            <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;border:1px solid rgba(143,191,122,0.45);padding:0 12px;background:rgba(143,191,122,0.12)">
+              <span style="font:600 9px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#8fbf7a">DURUM</span>
+              <span style="font:700 14px/1 'Barlow Condensed',sans-serif;letter-spacing:0.08em;color:#a8cf94">ARMED</span>
+            </div>
+            <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;border:1px solid rgba(148,188,227,0.3);padding:0 12px">
+              <span style="font:600 9px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#7e9cb8">EKF</span>
+              <span style="font:700 14px/1 'Barlow Condensed',sans-serif;letter-spacing:0.08em;color:#a8cf94">İYİ 0.21</span>
+            </div>
+            <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;border:1px solid rgba(148,188,227,0.3);padding:0 12px">
+              <span style="font:600 9px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#7e9cb8">RC</span>
+              <span style="font:700 14px/1 'Barlow Condensed',sans-serif;letter-spacing:0.08em;color:#bdd8f2">%92</span>
+            </div>
+            <div style="display:flex;flex-direction:column;justify-content:center;gap:2px;border:1px solid rgba(148,188,227,0.3);padding:0 12px">
+              <span style="font:600 9px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#7e9cb8">GPS</span>
+              <span style="font:700 14px/1 'Barlow Condensed',sans-serif;letter-spacing:0.08em;color:#bdd8f2">3D · 14</span>
+            </div>
+          </div>
+        </div>
+
+        <sc-if value="{{ uyariBandi }}" hint-placeholder-val="{{ false }}">
+          <div style="height:30px;flex:none;background:rgba(194,91,82,0.9);color:#f5f5f8;display:flex;align-items:center;justify-content:center;font:700 14px/1 'Barlow Condensed',sans-serif;letter-spacing:0.28em">BAĞLANTI KESİLDİ — FAILSAFE 6 SN İÇİNDE RTL BAŞLATACAK</div>
+        </sc-if>
+
+        <!-- sekme şeridi -->
+        <div style="height:38px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:stretch;padding:0 12px;gap:2px">
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid #94bce3;color:#e7e7ea;font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">UÇUŞ</div>
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid transparent;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">HARİTA &amp; GÖREV</div>
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid transparent;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">PARAMETRELER</div>
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid transparent;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">PRE-ARM</div>
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid transparent;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">LOG</div>
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid transparent;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">RAPOR</div>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:14px;font:500 12px/1 'Barlow',sans-serif;color:#627d98">
+            <span>Uçuş süresi <span style="color:#bdd8f2;font-weight:600">00:07:41</span></span>
+            <span>Log <span style="color:#bdd8f2;font-weight:600">yazılıyor</span></span>
+          </div>
+        </div>
+
+        <!-- içerik -->
+        <div style="flex:1;display:flex;gap:12px;padding:12px;min-height:0">
+
+          <!-- sol kolon -->
+          <div style="flex:55;display:flex;flex-direction:column;gap:12px;min-width:0">
+
+            <!-- HUD -->
+            <div class="blueprint" style="position:relative;flex:1;min-height:0;border:1px solid rgba(148,188,227,0.22);display:flex;flex-direction:column">
+              <i class="corner tl"></i>
+              <i class="corner tr"></i>
+              <i class="corner bl"></i>
+              <i class="corner br"></i>
+              <div style="height:30px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-bottom:1px solid rgba(148,188,227,0.16)">
+                <span class="card-kicker" style="font-size:11px;letter-spacing:0.2em">YAPAY UFUK</span>
+                <span style="font:500 11px/1 'Barlow',sans-serif;color:#627d98">Roll −6.4° · Pitch +2.1° · Yaw 218°</span>
+              </div>
+              <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:26px;padding:16px;min-height:0">
+                <!-- hız şeridi -->
+                <div style="width:74px;align-self:stretch;border:1px solid rgba(148,188,227,0.18);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;background:rgba(148,188,227,0.04)">
+                  <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#7e9cb8">HIZ m/s</span>
+                  <span style="font:700 30px/1 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">6.4</span>
+                  <span style="width:100%;height:1px;background:rgba(148,188,227,0.2)"></span>
+                  <span style="font:500 11px/1.5 'Barlow',sans-serif;color:#7e9cb8;text-align:center">yer<br>23 km/h</span>
+                </div>
+                <!-- attitude -->
+                <div style="position:relative;width:352px;height:352px;border-radius:50%;overflow:hidden;border:1px solid rgba(148,188,227,0.45);flex:none">
+                  <div style="position:absolute;inset:-40%;transform:rotate(-6.4deg) translateY(12px);background:linear-gradient(#597ea3 0 50%,#424244 50% 100%)"></div>
+                  <div style="position:absolute;left:0;right:0;top:calc(50% + 12px);height:1px;background:#e7e7ea"></div>
+                  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transform:rotate(-6.4deg) translateY(12px)">
+                    <span style="width:70px;height:1px;background:rgba(231,231,234,0.6)"></span>
+                    <span style="width:110px;height:1px;background:rgba(231,231,234,0.75)"></span>
+                    <span style="width:0;height:1px"></span>
+                    <span style="width:110px;height:1px;background:rgba(231,231,234,0.75)"></span>
+                    <span style="width:70px;height:1px;background:rgba(231,231,234,0.6)"></span>
+                  </div>
+                  <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:9px">
+                    <span style="width:40px;height:2px;background:#94bce3"></span>
+                    <span style="width:6px;height:6px;background:#94bce3;transform:rotate(45deg)"></span>
+                    <span style="width:40px;height:2px;background:#94bce3"></span>
+                  </div>
+                  <div style="position:absolute;top:8px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:9px solid #94bce3"></div>
+                </div>
+                <!-- irtifa şeridi -->
+                <div style="width:88px;align-self:stretch;border:1px solid rgba(148,188,227,0.18);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;background:rgba(148,188,227,0.04)">
+                  <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#7e9cb8">İRTİFA m</span>
+                  <span style="font:700 30px/1 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">48.3</span>
+                  <span style="width:100%;height:1px;background:rgba(148,188,227,0.2)"></span>
+                  <span style="font:500 11px/1.5 'Barlow',sans-serif;color:#7e9cb8;text-align:center">AGL 44.9<br>dikey +0.4</span>
+                </div>
+              </div>
+              <!-- pusula şeridi -->
+              <div style="height:34px;flex:none;border-top:1px solid rgba(148,188,227,0.16);display:flex;align-items:center;justify-content:center;gap:22px;font:600 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#627d98">
+                <span>150</span><span>K</span><span>180</span><span style="color:#e7e7ea;border-bottom:2px solid #94bce3;padding-bottom:3px">218</span><span>240</span><span>B</span><span>270</span>
+              </div>
+            </div>
+
+            <!-- durum şeridi -->
+            <div style="height:38px;flex:none;border:1px solid rgba(148,188,227,0.22);display:flex;align-items:center;gap:14px;padding:0 12px;background:rgba(148,188,227,0.04)">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="width:52px;height:12px;border:1px solid rgba(148,188,227,0.4);padding:1px"><div style="width:78%;height:100%;background:#8fbf7a"></div></div>
+                <span style="font:600 13px/1 'Barlow',sans-serif;color:#e7e7ea">%78 · 24.6 V · 11.4 A</span>
+                <span style="font:500 12px/1 'Barlow',sans-serif;color:#627d98">kalan ~9 dk</span>
+              </div>
+              <span style="width:1px;height:20px;background:rgba(148,188,227,0.22)"></span>
+              <span style="font:500 12px/1 'Barlow',sans-serif;color:#9ebbd8">GPS 3D · 14 uydu · 40.99231, 29.12447</span>
+              <span style="width:1px;height:20px;background:rgba(148,188,227,0.22)"></span>
+              <span style="font:500 12px/1 'Barlow',sans-serif;color:#9ebbd8">Rüzgar 4.2 m/s (15 km/h) · 220° · <span style="color:#8fbf7a;font-weight:600">NORMAL</span></span>
+              <span style="width:1px;height:20px;background:rgba(148,188,227,0.22)"></span>
+              <span style="font:500 12px/1 'Barlow',sans-serif;color:#9ebbd8">Arazi 44.9 m AGL · tile 0 bekliyor</span>
+              <div style="flex:1"></div>
+              <span class="tag" style="font-family:var(--font-heading);font-weight:600;letter-spacing:0.14em;color:#d9a24a;border:1px solid rgba(217,162,74,0.5);padding:4px 8px">ADSB 1 uçak · 2.1 km</span>
+            </div>
+
+            <!-- tile şeridi -->
+            <div style="flex:none;display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">İRTİFA (m)</div>
+                <div style="font:700 38px/1.05 'Barlow Condensed',sans-serif;color:#bdd8f2;font-variant-numeric:tabular-nums">48.3</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">HIZ (m/s)</div>
+                <div style="font:700 38px/1.05 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">6.4</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">DİKEY HIZ (m/s)</div>
+                <div style="font:700 38px/1.05 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">+0.4</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">EVE UZAKLIK (m)</div>
+                <div style="font:700 38px/1.05 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">312</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">ROLL (°)</div>
+                <div style="font:700 38px/1.05 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">−6.4</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">PITCH (°)</div>
+                <div style="font:700 38px/1.05 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">+2.1</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">YAW (°)</div>
+                <div style="font:700 38px/1.05 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">218</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">BATARYA (V)</div>
+                <div style="font:700 38px/1.05 'Barlow Condensed',sans-serif;color:#d9a24a;font-variant-numeric:tabular-nums">24.6</div>
+              </div>
+            </div>
+
+            <!-- komut şeridi -->
+            <div style="flex:none;display:flex;gap:10px">
+              <div class="blueprint" style="position:relative;flex:5;border:1px solid rgba(194,91,82,0.45);padding:10px 12px 12px">
+                <i class="corner tl"></i>
+                <i class="corner tr"></i>
+                <i class="corner bl"></i>
+                <i class="corner br"></i>
+                <div class="card-kicker" style="font-size:10px;letter-spacing:0.2em;color:#c98b85;margin-bottom:9px">ACİL KOMUTLAR</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+                  <button style="grid-column:span 2;height:44px;font-size:15px" class="btn" data-alarm="">EV'E DÖN · RTL</button>
+                  <button style="height:44px;font-size:15px" class="btn" data-alarm="">ACİL İNİŞ</button>
+                  <button style="height:44px;font-size:14px" class="btn btn-secondary">HOVERING</button>
+                  <button style="height:44px;font-size:14px" class="btn btn-secondary">DEVAM ET</button>
+                  <button style="height:44px;font-size:14px" class="btn" data-alarm-outline="">PARAŞÜT</button>
+                </div>
+              </div>
+              <div style="flex:5;border:1px solid rgba(148,188,227,0.22);padding:10px 12px 12px">
+                <div class="card-kicker" style="font-size:10px;letter-spacing:0.2em;margin-bottom:9px">UÇUŞ MODU</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+                  <button style="height:44px;font-size:14px" class="btn btn-secondary">SABİTLEME</button>
+                  <button style="height:44px;font-size:14px" class="btn btn-primary" aria-pressed="true">LOITER</button>
+                  <button style="height:44px;font-size:14px" class="btn btn-secondary">FREN</button>
+                  <button style="height:44px;font-size:14px" class="btn btn-secondary">OTOMATİK</button>
+                  <button style="height:44px;font-size:14px" class="btn btn-secondary">KILAVUZ</button>
+                  <button style="height:44px;font-size:14px" class="btn btn-secondary">SMART RTL</button>
+                </div>
+              </div>
+              <div style="flex:2;border:1px solid rgba(148,188,227,0.22);padding:10px 12px 12px">
+                <div class="card-kicker" style="font-size:10px;letter-spacing:0.2em;margin-bottom:9px">DİĞER</div>
+                <div style="display:grid;grid-template-columns:1fr;gap:6px">
+                  <button style="height:44px;font-size:14px" class="btn btn-secondary">EV NOKTASI YAP</button>
+                  <button style="height:44px;font-size:14px" class="btn btn-secondary">KALİBRASYON</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- alt paneller -->
+            <div style="height:196px;flex:none;border:1px solid rgba(148,188,227,0.22);display:flex;flex-direction:column">
+              <div style="height:32px;flex:none;display:flex;align-items:stretch;border-bottom:1px solid rgba(148,188,227,0.16);padding:0 8px;gap:2px">
+                <div style="display:flex;align-items:center;padding:0 14px;border-bottom:2px solid #94bce3;color:#e7e7ea;font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em">IMU / ESC</div>
+                <div style="display:flex;align-items:center;padding:0 14px;color:#7e9cb8;font:600 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;cursor:pointer" style-hover="color:#bdd8f2">GRAFİK</div>
+                <div style="display:flex;align-items:center;padding:0 14px;color:#7e9cb8;font:600 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;cursor:pointer" style-hover="color:#bdd8f2">MESAJ LOGU</div>
+                <div style="display:flex;align-items:center;padding:0 14px;color:#7e9cb8;font:600 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;cursor:pointer" style-hover="color:#bdd8f2">PRE-ARM</div>
+                <div style="display:flex;align-items:center;padding:0 14px;color:#7e9cb8;font:600 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;cursor:pointer" style-hover="color:#bdd8f2">RC KANALLARI</div>
+              </div>
+              <div style="flex:1;display:flex;gap:14px;padding:10px 12px;min-height:0">
+                <div style="width:250px;flex:none;display:flex;flex-direction:column;gap:6px">
+                  <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#627d98">IMU SICAKLIKLARI</div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(143,191,122,0.4);padding:5px 9px;font:500 13px/1 'Barlow',sans-serif;color:#a8cf94">IMU 1<span>41.2 °C ✓</span></div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(143,191,122,0.4);padding:5px 9px;font:500 13px/1 'Barlow',sans-serif;color:#a8cf94">IMU 2<span>39.8 °C ✓</span></div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(217,162,74,0.5);padding:5px 9px;font:500 13px/1 'Barlow',sans-serif;color:#d9a24a">IMU 3<span>47.6 °C !</span></div>
+                </div>
+                <div style="width:1px;background:rgba(148,188,227,0.16)"></div>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
+                  <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#627d98">ESC / MOTOR TELEMETRİSİ</div>
+                  <div style="display:grid;grid-template-columns:60px repeat(4,1fr);gap:4px;font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;color:#627d98;border-bottom:1px solid rgba(148,188,227,0.16);padding-bottom:4px">
+                    <span>MOTOR</span><span>RPM</span><span>SICAKLIK</span><span>VOLT</span><span>AKIM</span>
+                  </div>
+                  <sc-for list="{{ escler }}" as="esc" hint-placeholder-count="4">
+                    <div style="display:grid;grid-template-columns:60px repeat(4,1fr);gap:4px;font:500 13px/1.5 'Barlow',sans-serif;color:#bdd8f2;font-variant-numeric:tabular-nums">
+                      <span style="color:#7e9cb8">{{ esc.ad }}</span><span>{{ esc.rpm }}</span><span>{{ esc.sicaklik }}</span><span>{{ esc.volt }}</span><span>{{ esc.akim }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- sağ kolon: harita -->
+          <div class="blueprint" style="position:relative;flex:45;border:1px solid rgba(148,188,227,0.22);display:flex;flex-direction:column;min-width:0">
+            <i class="corner tl"></i>
+            <i class="corner tr"></i>
+            <i class="corner bl"></i>
+            <i class="corner br"></i>
+            <div style="height:38px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.16);display:flex;align-items:center;gap:6px;padding:0 8px">
+              <div style="height:26px;display:flex;align-items:center;gap:6px;border:1px solid rgba(148,188,227,0.28);padding:0 8px;font:600 11px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;color:#bdd8f2">UYDU ▾</div>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">DRONE'A ODAKLA</button>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">YOL SİL</button>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">WP ▾</button>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">FENCE ▾</button>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">ANALİZ ▾</button>
+              <div style="flex:1"></div>
+              <span style="font:500 11px/1 'Barlow',sans-serif;color:#627d98">40.99231, 29.12447 · z15</span>
+            </div>
+            <div style="position:relative;flex:1;min-height:0;background:#16222e;background-image:linear-gradient(rgba(148,188,227,0.07) 1px,transparent 1px),linear-gradient(90deg,rgba(148,188,227,0.07) 1px,transparent 1px);background-size:48px 48px;overflow:hidden">
+              <svg viewBox="0 0 800 800" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                <rect x="90" y="90" width="620" height="560" fill="none" stroke="#8fbf7a" stroke-width="1.5" stroke-dasharray="10 7" opacity="0.75"></rect>
+                <polyline points="300,560 340,470 420,430 500,300 560,250" fill="none" stroke="#94bce3" stroke-width="2" opacity="0.8"></polyline>
+                <polyline points="560,250 640,200 660,350 520,420" fill="none" stroke="#bdd8f2" stroke-width="1.5" stroke-dasharray="6 5"></polyline>
+                <line x1="560" y1="250" x2="300" y2="560" stroke="#94bce3" stroke-width="1" stroke-dasharray="3 6" opacity="0.5"></line>
+              </svg>
+              <div style="position:absolute;left:31.2%;top:65%;transform:translate(-50%,-50%);width:90px;height:90px;border-radius:50%;background:rgba(143,191,122,0.18);border:1.5px solid #8fbf7a"></div>
+              <div style="position:absolute;left:49%;top:74.5%;transform:translate(-50%,-50%);width:64px;height:64px;border-radius:50%;background:rgba(217,162,74,0.14);border:1.5px solid #d9a24a"></div>
+              <div style="position:absolute;left:37.5%;top:70%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px">
+                <span style="width:12px;height:12px;background:#8fbf7a;transform:rotate(45deg);border:1px solid #f5f5f8"></span>
+                <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;color:#a8cf94">EV</span>
+              </div>
+              <div style="position:absolute;left:70%;top:31.2%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px">
+                <span style="width:16px;height:16px;border-radius:50%;background:#c25b52;border:2px solid #f5f5f8;box-shadow:0 0 12px rgba(194,91,82,0.7)"></span>
+                <span style="font:600 11px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;color:#e7e7ea;background:rgba(22,34,46,0.85);padding:2px 6px;border:1px solid rgba(148,188,227,0.3)">DRONE · 48.3 m</span>
+              </div>
+              <div style="position:absolute;left:80%;top:25%;transform:translate(-50%,-50%);width:24px;height:24px;background:#94bce3;color:#12202c;display:flex;align-items:center;justify-content:center;font:700 12px/1 'Barlow Condensed',sans-serif;border:1px solid #16222e">3</div>
+              <div style="position:absolute;left:82.5%;top:43.7%;transform:translate(-50%,-50%);width:24px;height:24px;background:#94bce3;color:#12202c;display:flex;align-items:center;justify-content:center;font:700 12px/1 'Barlow Condensed',sans-serif;border:1px solid #16222e">4</div>
+              <div style="position:absolute;left:65%;top:52.5%;transform:translate(-50%,-50%);width:24px;height:24px;background:#94bce3;color:#12202c;display:flex;align-items:center;justify-content:center;font:700 12px/1 'Barlow Condensed',sans-serif;border:1px solid #16222e">5</div>
+              <div style="position:absolute;left:62%;top:18%;color:#d9a24a;font-size:19px">✈</div>
+              <div style="position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:4px;border:1px solid rgba(148,188,227,0.25);background:rgba(22,34,46,0.88);padding:8px 10px">
+                <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#7e9cb8">KATMANLAR</span>
+                <span style="font:500 11px/1.6 'Barlow',sans-serif;color:#8fbf7a">■ güvenli iniş (12)</span>
+                <span style="font:500 11px/1.6 'Barlow',sans-serif;color:#d9a24a">■ riskli (3)</span>
+                <span style="font:500 11px/1.6 'Barlow',sans-serif;color:#94bce3">— uçuş yolu · görev</span>
+                <span style="font:500 11px/1.6 'Barlow',sans-serif;color:#a8cf94">▭ fence 120 m</span>
+              </div>
+              <div style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(22,34,46,0.9);border:1px solid rgba(148,188,227,0.3);padding:7px 16px;font:500 13px/1 'Barlow',sans-serif;color:#bdd8f2">Arazi hazır — 12 güvenli nokta bulundu, en yakını 180 m güneybatıda</div>
+              <div style="position:absolute;bottom:12px;left:12px;display:flex;align-items:center;gap:6px;font:500 10px/1 'Barlow',sans-serif;color:#7e9cb8"><span style="width:64px;height:1px;background:#7e9cb8"></span>200 m</div>
+              <div style="position:absolute;bottom:12px;right:12px;font:400 10px/1 'Barlow',sans-serif;color:#4a6478;letter-spacing:0.04em">uydu görüntüsü katmanı · Esri World Imagery</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ 1b ══════════ -->
+    <div id="1b" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <span style="font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;background:#5980a6;color:#f2f2f3;padding:4px 9px">1B</span>
+        <span style="font:600 20px/1 'Barlow Condensed',sans-serif;letter-spacing:0.04em">Düzen B — harita sekmesi kaldırıldı, görev planlama uçuş ekranında</span>
+        <span style="font:400 13px/1 'Barlow',sans-serif;color:#5d5d60">Sol dikey ray + kalıcı acil şerit + haritanın altına oturan görev tablosu</span>
+      </div>
+
+      <div data-screen-label="1B Uçuş" class="cockpit" style="width:1920px;height:1080px;background:#1d2d3d;border:1px solid rgba(29,31,32,0.2);display:flex;flex-direction:column;overflow:hidden;font-family:'Barlow',sans-serif">
+        <div style="height:54px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:center;gap:10px;padding:0 16px">
+          <span style="width:9px;height:9px;background:#8fbf7a;box-shadow:0 0 8px rgba(143,191,122,0.7)"></span>
+          <span style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#e7e7ea">LÖP YER İSTASYONU</span>
+          <span style="width:1px;height:26px;background:rgba(148,188,227,0.22);margin:0 6px"></span>
+          <div style="width:196px;height:30px;background:#111c26;border:1px solid rgba(148,188,227,0.28);display:flex;align-items:center;padding:0 9px;font:500 13px/1 'Barlow',sans-serif;color:#bdd8f2">tcp:127.0.0.1:5762</div>
+          <button style="height:30px;padding:0 18px;font-size:12px" class="btn btn-primary">BAĞLAN</button>
+          <button style="height:30px;padding:0 14px;font-size:12px" class="btn" data-alarm-solid="">KES</button>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:18px;font:500 12px/1 'Barlow',sans-serif;color:#7e9cb8">
+            <span>MOD <span style="color:#bdd8f2;font:700 15px/1 'Barlow Condensed',sans-serif;letter-spacing:0.08em">LOITER</span></span>
+            <span style="color:#8fbf7a;font:700 15px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em">ARMED</span>
+            <span>EKF <span style="color:#a8cf94;font-weight:600">0.21 İYİ</span></span>
+            <span>RC <span style="color:#bdd8f2;font-weight:600">%92</span></span>
+            <span>GPS <span style="color:#bdd8f2;font-weight:600">3D · 14</span></span>
+            <span>SÜRE <span style="color:#bdd8f2;font-weight:600">00:07:41</span></span>
+          </div>
+        </div>
+
+        <!-- kalıcı acil şerit -->
+        <div style="height:52px;flex:none;background:rgba(194,91,82,0.1);border-bottom:1px solid rgba(194,91,82,0.4);display:flex;align-items:center;gap:8px;padding:0 14px">
+          <span style="font:700 11px/1 'Barlow Condensed',sans-serif;letter-spacing:0.2em;color:#c98b85;width:96px">ACİL</span>
+          <button style="width:210px;height:36px;font-size:14px" class="btn" data-alarm="">EV'E DÖN · RTL</button>
+          <button style="width:170px;height:36px;font-size:14px" class="btn" data-alarm="">ACİL İNİŞ</button>
+          <button style="width:150px;height:36px;font-size:14px" class="btn btn-secondary">HOVERING</button>
+          <button style="width:150px;height:36px;font-size:14px" class="btn btn-secondary">DEVAM ET</button>
+          <button style="width:150px;height:36px;font-size:14px" class="btn" data-alarm-outline="">PARAŞÜT</button>
+          <span style="width:1px;height:28px;background:rgba(148,188,227,0.22);margin:0 8px"></span>
+          <div style="display:flex;gap:6px">
+            <button style="height:36px;padding:0 14px;font-size:13px" class="btn btn-secondary">SABİTLEME</button>
+            <button style="height:36px;padding:0 14px;font-size:13px" class="btn btn-primary" aria-pressed="true">LOITER</button>
+            <button style="height:36px;padding:0 14px;font-size:13px" class="btn btn-secondary">FREN</button>
+            <button style="height:36px;padding:0 14px;font-size:13px" class="btn btn-secondary">OTOMATİK</button>
+            <button style="height:36px;padding:0 14px;font-size:13px" class="btn btn-secondary">KILAVUZ</button>
+          </div>
+          <div style="flex:1"></div>
+          <span class="tag" style="font-family:var(--font-heading);font-weight:600;letter-spacing:0.14em;color:#d9a24a;border:1px solid rgba(217,162,74,0.5);padding:5px 9px">ADSB 1 uçak · 2.1 km · 220°</span>
+        </div>
+
+        <div style="flex:1;display:flex;min-height:0">
+          <!-- dikey ray -->
+          <div style="width:96px;flex:none;background:#16222e;border-right:1px solid rgba(148,188,227,0.22);display:flex;flex-direction:column;padding:10px 0;gap:2px">
+            <div style="height:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;background:rgba(148,188,227,0.1);border-left:2px solid #94bce3">
+              <span style="width:16px;height:16px;border:1.5px solid #94bce3;border-radius:50%"></span>
+              <span style="font:700 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;color:#e7e7ea">UÇUŞ</span>
+            </div>
+            <div style="height:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;border-left:2px solid transparent;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">
+              <span style="width:16px;height:16px;border:1.5px solid #7e9cb8;transform:rotate(45deg)"></span>
+              <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;color:#9ebbd8">GÖREV</span>
+            </div>
+            <div style="height:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;border-left:2px solid transparent;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">
+              <span style="width:16px;height:16px;border:1.5px solid #7e9cb8"></span>
+              <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;color:#9ebbd8">PARAM</span>
+            </div>
+            <div style="height:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;border-left:2px solid transparent;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">
+              <span style="width:16px;height:4px;border-top:1.5px solid #7e9cb8;border-bottom:1.5px solid #7e9cb8"></span>
+              <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;color:#9ebbd8">PRE-ARM</span>
+            </div>
+            <div style="height:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;border-left:2px solid transparent;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">
+              <span style="width:16px;height:16px;border:1.5px solid #7e9cb8;border-radius:50% 50% 0 0"></span>
+              <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;color:#9ebbd8">LOG</span>
+            </div>
+            <div style="flex:1"></div>
+            <div style="height:74px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;border-left:2px solid transparent;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">
+              <span style="width:16px;height:16px;border:1.5px solid #7e9cb8;border-radius:50%;border-left-color:transparent"></span>
+              <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;color:#9ebbd8">RAPOR</span>
+            </div>
+          </div>
+
+          <!-- sol enstrüman kolonu -->
+          <div style="width:430px;flex:none;display:flex;flex-direction:column;gap:10px;padding:12px;border-right:1px solid rgba(148,188,227,0.16);min-height:0">
+            <div class="blueprint" style="position:relative;flex:none;height:300px;border:1px solid rgba(148,188,227,0.22);display:flex;align-items:center;justify-content:center">
+              <i class="corner tl"></i>
+              <i class="corner tr"></i>
+              <i class="corner bl"></i>
+              <i class="corner br"></i>
+              <div style="position:relative;width:252px;height:252px;border-radius:50%;overflow:hidden;border:1px solid rgba(148,188,227,0.45)">
+                <div style="position:absolute;inset:-40%;transform:rotate(-6.4deg) translateY(9px);background:linear-gradient(#597ea3 0 50%,#424244 50% 100%)"></div>
+                <div style="position:absolute;left:0;right:0;top:calc(50% + 9px);height:1px;background:#e7e7ea"></div>
+                <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:8px">
+                  <span style="width:32px;height:2px;background:#94bce3"></span>
+                  <span style="width:5px;height:5px;background:#94bce3;transform:rotate(45deg)"></span>
+                  <span style="width:32px;height:2px;background:#94bce3"></span>
+                </div>
+                <div style="position:absolute;top:6px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #94bce3"></div>
+              </div>
+              <div style="position:absolute;bottom:8px;left:12px;font:500 11px/1 'Barlow',sans-serif;color:#627d98">R −6.4° · P +2.1° · Y 218°</div>
+            </div>
+
+            <div style="flex:none;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">İRTİFA (m)</div>
+                <div style="font:700 40px/1.05 'Barlow Condensed',sans-serif;color:#bdd8f2;font-variant-numeric:tabular-nums">48.3</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">HIZ (m/s)</div>
+                <div style="font:700 40px/1.05 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">6.4</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">DİKEY (m/s)</div>
+                <div style="font:700 40px/1.05 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">+0.4</div>
+              </div>
+              <div style="border:1px solid rgba(148,188,227,0.18);padding:8px 11px;background:rgba(17,28,38,0.6)">
+                <div style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">EVE (m)</div>
+                <div style="font:700 40px/1.05 'Barlow Condensed',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums">312</div>
+              </div>
+            </div>
+
+            <div class="card" style="flex:none;padding:10px 12px;gap:8px">
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <span style="font:700 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.2em;color:#9ebbd8">BATARYA</span>
+                <span style="font:500 11px/1 'Barlow',sans-serif;color:#627d98">6S · kalan ~9 dk</span>
+              </div>
+              <div style="height:16px;border:1px solid rgba(148,188,227,0.4);padding:2px"><div style="width:78%;height:100%;background:#8fbf7a"></div></div>
+              <div style="display:flex;justify-content:space-between;font:600 17px/1 'Barlow Condensed',sans-serif;color:#e7e7ea"><span>%78</span><span>24.6 V</span><span>11.4 A</span><span>4180 mAh</span></div>
+            </div>
+
+            <div class="card" style="flex:none;padding:10px 12px;gap:7px">
+              <div class="card-kicker" style="font-size:10px;letter-spacing:0.2em">RÜZGAR &amp; ARAZİ</div>
+              <div style="display:flex;align-items:center;gap:12px">
+                <span style="font:700 30px/1 'Barlow Condensed',sans-serif;color:#8fbf7a">4.2<span style="font-size:14px;color:#7e9cb8"> m/s</span></span>
+                <span style="font:500 12px/1.5 'Barlow',sans-serif;color:#9ebbd8">220° · 15 km/h<br>seviye NORMAL (eşik 5.5)</span>
+                <div style="flex:1"></div>
+                <span style="font:500 12px/1.5 'Barlow',sans-serif;color:#9ebbd8;text-align:right">AGL 44.9 m<br>tile 0 bekliyor</span>
+              </div>
+            </div>
+
+            <div class="card" style="flex:1;min-height:0;padding:10px 12px;gap:6px;overflow:hidden">
+              <div class="card-kicker" style="font-size:10px;letter-spacing:0.2em">SİSTEM MESAJLARI</div>
+              <div style="font:500 12px/1.75 'Barlow',sans-serif;color:#9ebbd8">
+                <div><span style="color:#627d98">14:22:07</span> Loiter moduna geçildi</div>
+                <div><span style="color:#627d98">14:22:01</span> <span style="color:#d9a24a">IMU3 sıcaklığı 47.6 °C</span></div>
+                <div><span style="color:#627d98">14:21:44</span> Görev 5 waypoint yüklendi</div>
+                <div><span style="color:#627d98">14:21:12</span> Fence etkin — 120 m üst sınır</div>
+                <div><span style="color:#627d98">14:20:58</span> <span style="color:#8fbf7a">EKF sağlıklı, arm izni verildi</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- harita + görev tablosu -->
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+            <div style="height:38px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.16);display:flex;align-items:center;gap:6px;padding:0 10px">
+              <div style="height:26px;display:flex;align-items:center;gap:6px;border:1px solid rgba(148,188,227,0.28);padding:0 8px;font:600 11px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;color:#bdd8f2">UYDU ▾</div>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-primary">WP EKLE</button>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">GRID TARA</button>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">GÖREVİ YÜKLE</button>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">FENCE ▾</button>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">ANALİZ ▾</button>
+              <button style="height:26px;padding:0 10px;font-size:11px" class="btn btn-secondary">DRONE'A ODAKLA</button>
+              <div style="flex:1"></div>
+              <span style="font:500 11px/1 'Barlow',sans-serif;color:#627d98">imleç 41.00120, 29.13455 · z15</span>
+            </div>
+            <div style="position:relative;flex:1;min-height:0;background:#16222e;background-image:linear-gradient(rgba(148,188,227,0.07) 1px,transparent 1px),linear-gradient(90deg,rgba(148,188,227,0.07) 1px,transparent 1px);background-size:56px 56px;overflow:hidden">
+              <svg viewBox="0 0 1000 700" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                <rect x="80" y="60" width="840" height="580" fill="none" stroke="#8fbf7a" stroke-width="1.5" stroke-dasharray="12 8" opacity="0.7"></rect>
+                <polyline points="330,520 420,430 540,360 660,250 780,300" fill="none" stroke="#94bce3" stroke-width="2.5"></polyline>
+                <polyline points="780,300 860,180 620,150 480,230" fill="none" stroke="#bdd8f2" stroke-width="1.5" stroke-dasharray="7 6"></polyline>
+              </svg>
+              <div style="position:absolute;left:30%;top:71.4%;transform:translate(-50%,-50%);width:110px;height:110px;border-radius:50%;background:rgba(143,191,122,0.16);border:1.5px solid #8fbf7a"></div>
+              <div style="position:absolute;left:43%;top:82.1%;transform:translate(-50%,-50%);width:72px;height:72px;border-radius:50%;background:rgba(217,162,74,0.14);border:1.5px solid #d9a24a"></div>
+              <div style="position:absolute;left:33%;top:74.3%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px">
+                <span style="width:12px;height:12px;background:#8fbf7a;transform:rotate(45deg);border:1px solid #f5f5f8"></span>
+                <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;color:#a8cf94">EV</span>
+              </div>
+              <div style="position:absolute;left:78%;top:42.8%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px">
+                <span style="width:18px;height:18px;border-radius:50%;background:#c25b52;border:2px solid #f5f5f8;box-shadow:0 0 14px rgba(194,91,82,0.7)"></span>
+                <span style="font:600 11px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;color:#e7e7ea;background:rgba(22,34,46,0.85);padding:2px 6px;border:1px solid rgba(148,188,227,0.3)">DRONE · 48.3 m · 218°</span>
+              </div>
+              <div style="position:absolute;left:86%;top:25.7%;transform:translate(-50%,-50%);width:26px;height:26px;background:#94bce3;color:#12202c;display:flex;align-items:center;justify-content:center;font:700 13px/1 'Barlow Condensed',sans-serif;border:1px solid #16222e">4</div>
+              <div style="position:absolute;left:62%;top:21.4%;transform:translate(-50%,-50%);width:26px;height:26px;background:#94bce3;color:#12202c;display:flex;align-items:center;justify-content:center;font:700 13px/1 'Barlow Condensed',sans-serif;border:1px solid #16222e">5</div>
+              <div style="position:absolute;left:48%;top:32.8%;transform:translate(-50%,-50%);width:26px;height:26px;background:transparent;color:#bdd8f2;border:1px dashed #94bce3;display:flex;align-items:center;justify-content:center;font:700 13px/1 'Barlow Condensed',sans-serif">6</div>
+              <div style="position:absolute;top:12px;right:12px;display:flex;flex-direction:column;gap:4px;border:1px solid rgba(148,188,227,0.25);background:rgba(22,34,46,0.88);padding:8px 10px">
+                <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#7e9cb8">KATMANLAR</span>
+                <span style="font:500 11px/1.6 'Barlow',sans-serif;color:#8fbf7a">■ güvenli iniş (12)</span>
+                <span style="font:500 11px/1.6 'Barlow',sans-serif;color:#d9a24a">■ riskli (3)</span>
+                <span style="font:500 11px/1.6 'Barlow',sans-serif;color:#94bce3">— uçuş yolu · görev</span>
+              </div>
+              <div style="position:absolute;bottom:12px;left:12px;display:flex;align-items:center;gap:6px;font:500 10px/1 'Barlow',sans-serif;color:#7e9cb8"><span style="width:70px;height:1px;background:#7e9cb8"></span>200 m</div>
+              <div style="position:absolute;bottom:12px;right:12px;font:400 10px/1 'Barlow',sans-serif;color:#4a6478">uydu görüntüsü katmanı · Esri World Imagery</div>
+            </div>
+            <!-- görev tablosu -->
+            <div style="height:238px;flex:none;border-top:1px solid rgba(148,188,227,0.22);display:flex;flex-direction:column;background:#16222e">
+              <div style="height:34px;flex:none;display:flex;align-items:center;gap:14px;padding:0 12px;border-bottom:1px solid rgba(148,188,227,0.16)">
+                <span style="font:700 11px/1 'Barlow Condensed',sans-serif;letter-spacing:0.2em;color:#e7e7ea">GÖREV — 6 WAYPOINT</span>
+                <span style="font:500 11px/1 'Barlow',sans-serif;color:#627d98">toplam 1.84 km · tahmini 4 dk 20 sn · varsayılan irtifa 50 m</span>
+                <div style="flex:1"></div>
+                <button style="height:24px;padding:0 10px;font-size:11px" class="btn btn-secondary">DRONE'DAN OKU</button>
+                <button style="height:24px;padding:0 10px;font-size:11px" class="btn" data-alarm-outline="">TEMİZLE</button>
+                <button style="height:24px;padding:0 12px;font-size:11px" class="btn btn-primary">GÖREVİ YÜKLE</button>
+              </div>
+              <div style="flex:1;overflow:hidden;padding:0 12px">
+                <div style="display:grid;grid-template-columns:44px 150px 1fr 1fr 90px 90px 110px;gap:8px;padding:7px 0;border-bottom:1px solid rgba(148,188,227,0.16);font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">
+                  <span>#</span><span>KOMUT</span><span>ENLEM</span><span>BOYLAM</span><span>İRTİFA</span><span>MESAFE</span><span>DURUM</span>
+                </div>
+                <div style="display:grid;grid-template-columns:44px 150px 1fr 1fr 90px 90px 110px;gap:8px;padding:6px 0;border-bottom:1px solid rgba(148,188,227,0.08);font:500 13px/1 'Barlow',sans-serif;color:#7e9cb8;font-variant-numeric:tabular-nums"><span>1</span><span>TAKEOFF</span><span>40.99231</span><span>29.12447</span><span>15 m</span><span>—</span><span style="color:#8fbf7a">tamam</span></div>
+                <div style="display:grid;grid-template-columns:44px 150px 1fr 1fr 90px 90px 110px;gap:8px;padding:6px 0;border-bottom:1px solid rgba(148,188,227,0.08);font:500 13px/1 'Barlow',sans-serif;color:#7e9cb8;font-variant-numeric:tabular-nums"><span>2</span><span>NAV_WAYPOINT</span><span>40.99510</span><span>29.12780</span><span>50 m</span><span>412 m</span><span style="color:#8fbf7a">tamam</span></div>
+                <div style="display:grid;grid-template-columns:44px 150px 1fr 1fr 90px 90px 110px;gap:8px;padding:6px 0;border-bottom:1px solid rgba(148,188,227,0.08);font:500 13px/1 'Barlow',sans-serif;color:#7e9cb8;font-variant-numeric:tabular-nums"><span>3</span><span>NAV_WAYPOINT</span><span>40.99845</span><span>29.13102</span><span>50 m</span><span>468 m</span><span style="color:#8fbf7a">tamam</span></div>
+                <div style="display:grid;grid-template-columns:44px 150px 1fr 1fr 90px 90px 110px;gap:8px;padding:6px 0;border-bottom:1px solid rgba(148,188,227,0.08);background:rgba(148,188,227,0.09);font:600 13px/1 'Barlow',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums"><span>4</span><span>NAV_WAYPOINT</span><span>41.00120</span><span>29.13455</span><span>50 m</span><span>390 m</span><span style="color:#94bce3">aktif ▸</span></div>
+                <div style="display:grid;grid-template-columns:44px 150px 1fr 1fr 90px 90px 110px;gap:8px;padding:6px 0;border-bottom:1px solid rgba(148,188,227,0.08);font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8;font-variant-numeric:tabular-nums"><span>5</span><span>LOITER_UNLIM</span><span>41.00344</span><span>29.13010</span><span>40 m</span><span>355 m</span><span>bekliyor</span></div>
+                <div style="display:grid;grid-template-columns:44px 150px 1fr 1fr 90px 90px 110px;gap:8px;padding:6px 0;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8;font-variant-numeric:tabular-nums"><span>6</span><span>LAND</span><span>40.99231</span><span>29.12447</span><span>0 m</span><span>218 m</span><span>bekliyor</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="display:flex;align-items:baseline;gap:16px;border-top:1px solid rgba(29,31,32,0.16);padding-top:20px;margin-top:16px">
+    <h2 style="margin:0;font:600 24px/1 'Barlow Condensed',sans-serif;letter-spacing:0.02em">Diğer ekranlar — <a href="#1a">1a</a> düzeninin dili ile</h2>
+    <span style="font:400 13px/1 'Barlow',sans-serif;color:#5d5d60">Her ikisi için ortak</span>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+
+    <!-- 1c HARİTA & GÖREV -->
+    <div id="1c" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <span style="font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;background:#5980a6;color:#f2f2f3;padding:4px 9px">1C</span>
+        <span style="font:600 20px/1 'Barlow Condensed',sans-serif;letter-spacing:0.04em">Harita &amp; Görev planlama (tam ekran)</span>
+      </div>
+      <div data-screen-label="1C Harita" class="cockpit" style="width:1920px;height:1080px;background:#1d2d3d;border:1px solid rgba(29,31,32,0.2);display:flex;flex-direction:column;overflow:hidden;font-family:'Barlow',sans-serif">
+        <div style="height:54px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:center;gap:10px;padding:0 16px">
+          <span style="width:9px;height:9px;background:#8fbf7a"></span>
+          <span style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#e7e7ea">LÖP YER İSTASYONU</span>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:18px;font:500 12px/1 'Barlow',sans-serif;color:#7e9cb8">
+            <span>MOD <span style="color:#bdd8f2;font:700 15px/1 'Barlow Condensed',sans-serif;letter-spacing:0.08em">OTOMATİK</span></span>
+            <span style="color:#8fbf7a;font:700 15px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em">ARMED</span>
+            <span>GPS <span style="color:#bdd8f2;font-weight:600">3D · 14</span></span>
+            <span>BAT <span style="color:#bdd8f2;font-weight:600">%78</span></span>
+          </div>
+        </div>
+        <div style="height:38px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:stretch;padding:0 12px;gap:2px">
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">UÇUŞ</div>
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid #94bce3;color:#e7e7ea;font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">HARİTA &amp; GÖREV</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">PARAMETRELER</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">PRE-ARM</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">LOG</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;cursor:pointer" style-hover="color:#bdd8f2">RAPOR</div>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+            <div style="height:40px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.16);display:flex;align-items:center;gap:6px;padding:0 12px">
+              <div style="height:28px;display:flex;align-items:center;border:1px solid rgba(148,188,227,0.28);padding:0 10px;font:600 11px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;color:#bdd8f2">UYDU ▾</div>
+              <button style="height:28px;padding:0 12px;font-size:11px" class="btn btn-primary">WP EKLE — AKTİF</button>
+              <button style="height:28px;padding:0 12px;font-size:11px" class="btn btn-secondary">GRID TARA</button>
+              <button style="height:28px;padding:0 12px;font-size:11px" class="btn btn-secondary">ALAN ÇİZ</button>
+              <button style="height:28px;padding:0 12px;font-size:11px" class="btn btn-secondary">FENCE ÇİZ</button>
+              <button style="height:28px;padding:0 12px;font-size:11px" class="btn btn-secondary">RALLY YÜKLE</button>
+              <button style="height:28px;padding:0 12px;font-size:11px;color:#a8cf94;border-color:rgba(143,191,122,0.5)" class="btn btn-secondary">GÜVENLİ İNİŞ ANALİZİ</button>
+              <div style="flex:1"></div>
+              <span style="font:500 11px/1 'Barlow',sans-serif;color:#627d98">imleç 41.00120, 29.13455 · z15 · ESC ile çıkış</span>
+            </div>
+            <div style="position:relative;flex:1;min-height:0;background:#16222e;background-image:linear-gradient(rgba(148,188,227,0.07) 1px,transparent 1px),linear-gradient(90deg,rgba(148,188,227,0.07) 1px,transparent 1px);background-size:64px 64px;overflow:hidden">
+              <svg viewBox="0 0 1400 900" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                <rect x="120" y="80" width="1160" height="740" fill="none" stroke="#8fbf7a" stroke-width="1.5" stroke-dasharray="14 9" opacity="0.7"></rect>
+                <rect x="620" y="300" width="420" height="300" fill="rgba(148,188,227,0.05)" stroke="#94bce3" stroke-width="1" stroke-dasharray="8 6"></rect>
+                <polyline points="460,700 620,600 820,470 1040,330 1180,420" fill="none" stroke="#94bce3" stroke-width="2.5"></polyline>
+                <polyline points="1180,420 1240,220 900,180 700,280" fill="none" stroke="#bdd8f2" stroke-width="1.5" stroke-dasharray="8 6"></polyline>
+              </svg>
+              <div style="position:absolute;left:30%;top:73.3%;transform:translate(-50%,-50%);width:106px;height:106px;border-radius:50%;background:rgba(143,191,122,0.16);border:1.5px solid #8fbf7a"></div>
+              <div style="position:absolute;left:40%;top:82.2%;transform:translate(-50%,-50%);width:70px;height:70px;border-radius:50%;background:rgba(217,162,74,0.14);border:1.5px solid #d9a24a"></div>
+              <div style="position:absolute;left:21.4%;top:62.2%;transform:translate(-50%,-50%);width:94px;height:94px;border-radius:50%;background:rgba(143,191,122,0.16);border:1.5px solid #8fbf7a"></div>
+              <div style="position:absolute;left:32.8%;top:77.7%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px"><span style="width:12px;height:12px;background:#8fbf7a;transform:rotate(45deg);border:1px solid #f5f5f8"></span><span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;color:#a8cf94">EV</span></div>
+              <div style="position:absolute;left:84.3%;top:46.6%;transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;background:#c25b52;border:2px solid #f5f5f8"></div>
+              <div style="position:absolute;left:88.6%;top:24.4%;transform:translate(-50%,-50%);width:26px;height:26px;background:#94bce3;color:#12202c;display:flex;align-items:center;justify-content:center;font:700 13px/1 'Barlow Condensed',sans-serif">4</div>
+              <div style="position:absolute;left:64.3%;top:20%;transform:translate(-50%,-50%);width:26px;height:26px;background:#94bce3;color:#12202c;display:flex;align-items:center;justify-content:center;font:700 13px/1 'Barlow Condensed',sans-serif">5</div>
+              <div style="position:absolute;left:50%;top:31.1%;transform:translate(-50%,-50%);width:26px;height:26px;border:1px dashed #94bce3;color:#bdd8f2;display:flex;align-items:center;justify-content:center;font:700 13px/1 'Barlow Condensed',sans-serif">6</div>
+              <div style="position:absolute;left:59.3%;top:50%;transform:translate(-50%,-50%);border:1px solid rgba(148,188,227,0.4);background:rgba(22,34,46,0.9);padding:6px 9px;font:500 11px/1.6 'Barlow',sans-serif;color:#bdd8f2">Grid tarama alanı<br><span style="color:#7e9cb8">420 × 300 m · 8 hat · 40 m aralık</span></div>
+              <div style="position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(22,34,46,0.9);border:1px solid rgba(148,188,227,0.3);padding:8px 18px;font:500 13px/1 'Barlow',sans-serif;color:#bdd8f2">Waypoint modu aktif — haritaya tıklayarak nokta ekle, sağ tık ile komut değiştir</div>
+              <div style="position:absolute;bottom:14px;left:14px;display:flex;align-items:center;gap:6px;font:500 10px/1 'Barlow',sans-serif;color:#7e9cb8"><span style="width:80px;height:1px;background:#7e9cb8"></span>200 m</div>
+              <div style="position:absolute;bottom:14px;right:14px;font:400 10px/1 'Barlow',sans-serif;color:#4a6478">uydu görüntüsü katmanı · Esri World Imagery</div>
+            </div>
+          </div>
+          <div style="width:520px;flex:none;border-left:1px solid rgba(148,188,227,0.22);display:flex;flex-direction:column;background:#16222e">
+            <div style="height:40px;flex:none;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid rgba(148,188,227,0.16);gap:12px">
+              <span style="font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.2em;color:#e7e7ea">GÖREV LİSTESİ</span>
+              <span style="font:500 11px/1 'Barlow',sans-serif;color:#627d98">6 nokta · 1.84 km</span>
+            </div>
+            <div style="flex:none;padding:12px 14px;display:flex;gap:10px;border-bottom:1px solid rgba(148,188,227,0.16)">
+              <div style="flex:1;display:flex;flex-direction:column;gap:5px"><span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">VARSAYILAN İRTİFA</span><div style="height:30px;background:#111c26;border:1px solid rgba(148,188,227,0.28);display:flex;align-items:center;padding:0 9px;font:500 13px/1 'Barlow',sans-serif;color:#bdd8f2">50 m</div></div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:5px"><span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">WP YARIÇAPI</span><div style="height:30px;background:#111c26;border:1px solid rgba(148,188,227,0.28);display:flex;align-items:center;padding:0 9px;font:500 13px/1 'Barlow',sans-serif;color:#bdd8f2">5 m</div></div>
+              <div style="flex:1;display:flex;flex-direction:column;gap:5px"><span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98">HIZ</span><div style="height:30px;background:#111c26;border:1px solid rgba(148,188,227,0.28);display:flex;align-items:center;padding:0 9px;font:500 13px/1 'Barlow',sans-serif;color:#bdd8f2">8 m/s</div></div>
+            </div>
+            <div style="flex:1;overflow:hidden;padding:10px 14px;display:flex;flex-direction:column;gap:6px">
+              <div style="display:grid;grid-template-columns:30px 1fr 62px 66px;gap:8px;padding-bottom:6px;border-bottom:1px solid rgba(148,188,227,0.16);font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#627d98"><span>#</span><span>KOMUT</span><span>İRTİFA</span><span>MESAFE</span></div>
+              <div style="display:grid;grid-template-columns:30px 1fr 62px 66px;gap:8px;font:500 13px/1.9 'Barlow',sans-serif;color:#7e9cb8;font-variant-numeric:tabular-nums"><span>1</span><span>TAKEOFF</span><span>15 m</span><span>—</span></div>
+              <div style="display:grid;grid-template-columns:30px 1fr 62px 66px;gap:8px;font:500 13px/1.9 'Barlow',sans-serif;color:#7e9cb8;font-variant-numeric:tabular-nums"><span>2</span><span>NAV_WAYPOINT</span><span>50 m</span><span>412 m</span></div>
+              <div style="display:grid;grid-template-columns:30px 1fr 62px 66px;gap:8px;font:500 13px/1.9 'Barlow',sans-serif;color:#7e9cb8;font-variant-numeric:tabular-nums"><span>3</span><span>NAV_WAYPOINT</span><span>50 m</span><span>468 m</span></div>
+              <div style="display:grid;grid-template-columns:30px 1fr 62px 66px;gap:8px;background:rgba(148,188,227,0.09);font:600 13px/1.9 'Barlow',sans-serif;color:#e7e7ea;font-variant-numeric:tabular-nums"><span>4</span><span>NAV_WAYPOINT</span><span>50 m</span><span>390 m</span></div>
+              <div style="display:grid;grid-template-columns:30px 1fr 62px 66px;gap:8px;font:500 13px/1.9 'Barlow',sans-serif;color:#9ebbd8;font-variant-numeric:tabular-nums"><span>5</span><span>LOITER_UNLIM</span><span>40 m</span><span>355 m</span></div>
+              <div style="display:grid;grid-template-columns:30px 1fr 62px 66px;gap:8px;font:500 13px/1.9 'Barlow',sans-serif;color:#9ebbd8;font-variant-numeric:tabular-nums"><span>6</span><span>LAND</span><span>0 m</span><span>218 m</span></div>
+              <div style="flex:1"></div>
+              <div style="border:1px solid rgba(143,191,122,0.4);padding:10px 12px;display:flex;flex-direction:column;gap:5px">
+                <span style="font:700 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#a8cf94">ARAZİ ANALİZİ</span>
+                <span style="font:500 12px/1.6 'Barlow',sans-serif;color:#9ebbd8">12 güvenli, 3 riskli nokta · en yakın güvenli iniş 180 m GB<br>Eğim eşiği 12° · OSM engel kontrolü tamam · rüzgar skoru 0.82</span>
+              </div>
+            </div>
+            <div style="flex:none;padding:12px 14px;border-top:1px solid rgba(148,188,227,0.16);display:flex;gap:8px">
+              <button style="flex:1;height:38px;background:transparent;border:1px solid rgba(148,188,227,0.28);color:#9ebbd8;font:600 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;cursor:pointer" style-hover="background:rgba(148,188,227,0.12)">DRONE'DAN OKU</button>
+              <button style="flex:1;height:38px;font-size:12px" class="btn" data-alarm-outline="">TEMİZLE</button>
+              <button style="flex:1.4;height:38px;background:#94bce3;color:#12202c;border:none;font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.12em;cursor:pointer" style-hover="background:#b5d9fd">GÖREVİ YÜKLE</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1d PARAMETRELER -->
+    <div id="1d" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <span style="font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;background:#5980a6;color:#f2f2f3;padding:4px 9px">1D</span>
+        <span style="font:600 20px/1 'Barlow Condensed',sans-serif;letter-spacing:0.04em">Parametreler</span>
+      </div>
+      <div data-screen-label="1D Parametreler" class="cockpit" style="width:1920px;height:1080px;background:#1d2d3d;border:1px solid rgba(29,31,32,0.2);display:flex;flex-direction:column;overflow:hidden;font-family:'Barlow',sans-serif">
+        <div style="height:54px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:center;gap:12px;padding:0 16px">
+          <span style="width:9px;height:9px;background:#8fbf7a"></span>
+          <span style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#e7e7ea">LÖP YER İSTASYONU</span>
+          <div style="flex:1"></div>
+          <span style="font:500 12px/1 'Barlow',sans-serif;color:#7e9cb8">1284 parametre indirildi · 3 değişiklik bekliyor</span>
+        </div>
+        <div style="height:38px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:stretch;padding:0 12px;gap:2px">
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">UÇUŞ</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">HARİTA &amp; GÖREV</div>
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid #94bce3;color:#e7e7ea;font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">PARAMETRELER</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">PRE-ARM</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">LOG</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">RAPOR</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:12px;padding:16px 20px;min-height:0">
+          <div style="flex:none;display:flex;align-items:center;gap:8px">
+            <button style="height:34px;padding:0 16px;font-size:12px" class="btn btn-primary">PARAMETRELERİ İNDİR</button>
+            <button style="height:34px;padding:0 16px;font-size:12px" class="btn btn-secondary">DEĞİŞİKLİKLERİ UYGULA (3)</button>
+            <button style="height:34px;padding:0 16px;font-size:12px" class="btn btn-secondary">YEDEKLE</button>
+            <button style="height:34px;padding:0 16px;font-size:12px" class="btn btn-secondary">GERİ YÜKLE</button>
+            <button style="height:34px;padding:0 16px;font-size:12px" class="btn btn-secondary">KARŞILAŞTIR</button>
+            <div style="flex:1"></div>
+            <div style="width:360px;height:34px;background:#111c26;border:1px solid rgba(148,188,227,0.28);display:flex;align-items:center;padding:0 10px;font:500 13px/1 'Barlow',sans-serif;color:#627d98">Parametre adı veya açıklaması ara…</div>
+          </div>
+          <div style="flex:1;display:flex;gap:14px;min-height:0">
+            <div style="width:230px;flex:none;border:1px solid rgba(148,188,227,0.22);padding:12px;display:flex;flex-direction:column;gap:3px">
+              <div style="font:700 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#627d98;margin-bottom:7px">GRUPLAR</div>
+              <div style="padding:6px 9px;background:rgba(148,188,227,0.12);color:#e7e7ea;font:600 13px/1 'Barlow',sans-serif">Tümü <span style="color:#7e9cb8;float:right">1284</span></div>
+              <div style="padding:6px 9px;color:#9ebbd8;font:500 13px/1 'Barlow',sans-serif;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">BATT <span style="color:#627d98;float:right">42</span></div>
+              <div style="padding:6px 9px;color:#9ebbd8;font:500 13px/1 'Barlow',sans-serif;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">FS <span style="color:#627d98;float:right">18</span></div>
+              <div style="padding:6px 9px;color:#9ebbd8;font:500 13px/1 'Barlow',sans-serif;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">EKF3 <span style="color:#627d98;float:right">64</span></div>
+              <div style="padding:6px 9px;color:#9ebbd8;font:500 13px/1 'Barlow',sans-serif;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">FENCE <span style="color:#627d98;float:right">11</span></div>
+              <div style="padding:6px 9px;color:#9ebbd8;font:500 13px/1 'Barlow',sans-serif;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">TERRAIN <span style="color:#627d98;float:right">7</span></div>
+              <div style="padding:6px 9px;color:#9ebbd8;font:500 13px/1 'Barlow',sans-serif;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">SCR <span style="color:#627d98;float:right">9</span></div>
+              <div style="padding:6px 9px;color:#9ebbd8;font:500 13px/1 'Barlow',sans-serif;cursor:pointer" style-hover="background:rgba(148,188,227,0.06)">WPNAV <span style="color:#627d98;float:right">23</span></div>
+              <div style="flex:1"></div>
+              <div style="border:1px solid rgba(217,162,74,0.45);padding:9px;font:500 11px/1.6 'Barlow',sans-serif;color:#d9a24a">3 parametre değiştirildi, henüz yazılmadı. Uygulamadan önce yedek al.</div>
+            </div>
+            <div class="blueprint" style="position:relative;flex:1;border:1px solid rgba(148,188,227,0.22);display:flex;flex-direction:column;min-width:0">
+              <i class="corner tl"></i>
+              <i class="corner tr"></i>
+              <i class="corner bl"></i>
+              <i class="corner br"></i>
+              <div style="flex:1;overflow:hidden">
+                <table class="table" style="font-variant-numeric:tabular-nums">
+                  <thead><tr style="background:#16222e"><th style="width:300px;padding:10px 14px">Parametre</th><th style="width:120px">Değer</th><th style="width:120px">Yeni değer</th><th style="">Açıklama</th><th style="width:120px">Aralık</th></tr></thead>
+                  <tbody>
+                    <tr><td style="padding:9px 14px;font-weight:600">BATT_LOW_VOLT</td><td>21.6</td><td style="color:var(--color-accent-2-600)">—</td><td style="color:var(--color-accent-2-500)">Düşük batarya failsafe voltajı</td><td style="color:var(--color-accent-2-600)">18–26</td></tr>
+                    <tr aria-selected="true"><td style="padding:9px 14px;font-weight:600">FS_GCS_ENABLE</td><td>0</td><td style="color:#d9a24a;font-weight:600">1</td><td style="color:var(--color-accent-2-500)">GCS bağlantısı kesilince RTL</td><td style="color:var(--color-accent-2-600)">0–2</td></tr>
+                    <tr aria-selected="true"><td style="padding:9px 14px;font-weight:600">FS_GCS_TIMEOUT</td><td>5</td><td style="color:#d9a24a;font-weight:600">10</td><td style="color:var(--color-accent-2-500)">GCS failsafe zaman aşımı (s)</td><td style="color:var(--color-accent-2-600)">2–120</td></tr>
+                    <tr><td style="padding:9px 14px;font-weight:600">FENCE_ALT_MAX</td><td>120.0</td><td style="color:var(--color-accent-2-600)">—</td><td style="color:var(--color-accent-2-500)">Azami çit yüksekliği (m)</td><td style="color:var(--color-accent-2-600)">10–1000</td></tr>
+                    <tr aria-selected="true"><td style="padding:9px 14px;font-weight:600">FENCE_ACTION</td><td>0</td><td style="color:#d9a24a;font-weight:600">1</td><td style="color:var(--color-accent-2-500)">Çit ihlalinde davranış (1 = RTL)</td><td style="color:var(--color-accent-2-600)">0–4</td></tr>
+                    <tr><td style="padding:9px 14px;font-weight:600">TERRAIN_ENABLE</td><td>1</td><td style="color:var(--color-accent-2-600)">—</td><td style="color:var(--color-accent-2-500)">Arazi takibi etkin</td><td style="color:var(--color-accent-2-600)">0–1</td></tr>
+                    <tr><td style="padding:9px 14px;font-weight:600">SCR_ENABLE</td><td>1</td><td style="color:var(--color-accent-2-600)">—</td><td style="color:var(--color-accent-2-500)">Lua script motoru</td><td style="color:var(--color-accent-2-600)">0–1</td></tr>
+                    <tr><td style="padding:9px 14px;font-weight:600">SCR_USER1</td><td>30</td><td style="color:var(--color-accent-2-600)">—</td><td style="color:var(--color-accent-2-500)">terrain_brake tetik yüksekliği (m)</td><td style="color:var(--color-accent-2-600)">5–120</td></tr>
+                    <tr><td style="padding:9px 14px;font-weight:600">WPNAV_SPEED</td><td>800</td><td style="color:var(--color-accent-2-600)">—</td><td style="color:var(--color-accent-2-500)">Görev yatay hızı (cm/s)</td><td style="color:var(--color-accent-2-600)">20–2000</td></tr>
+                    <tr><td style="padding:9px 14px;font-weight:600">WPNAV_RADIUS</td><td>200</td><td style="color:var(--color-accent-2-600)">—</td><td style="color:var(--color-accent-2-500)">WP kabul yarıçapı (cm)</td><td style="color:var(--color-accent-2-600)">10–1000</td></tr>
+                    <tr><td style="padding:9px 14px;font-weight:600">EK3_SRC1_POSXY</td><td>3</td><td style="color:var(--color-accent-2-600)">—</td><td style="color:var(--color-accent-2-500)">EKF3 birincil yatay konum kaynağı</td><td style="color:var(--color-accent-2-600)">0–6</td></tr>
+                    <tr><td style="padding:9px 14px;font-weight:600">RTL_ALT</td><td>3000</td><td style="color:var(--color-accent-2-600)">—</td><td style="color:var(--color-accent-2-500)">RTL dönüş irtifası (cm)</td><td style="color:var(--color-accent-2-600)">0–8000</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style="height:34px;flex:none;border-top:1px solid rgba(148,188,227,0.16);display:flex;align-items:center;padding:0 14px;font:500 12px/1 'Barlow',sans-serif;color:#627d98">Satıra çift tıklayarak değeri düzenle · değişiklikler uygulanana kadar sarı işaretlenir</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1e PRE-ARM -->
+    <div id="1e" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <span style="font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;background:#5980a6;color:#f2f2f3;padding:4px 9px">1E</span>
+        <span style="font:600 20px/1 'Barlow Condensed',sans-serif;letter-spacing:0.04em">Pre-Arm kontrol listesi</span>
+      </div>
+      <div data-screen-label="1E Pre-Arm" class="cockpit" style="width:1920px;height:1080px;background:#1d2d3d;border:1px solid rgba(29,31,32,0.2);display:flex;flex-direction:column;overflow:hidden;font-family:'Barlow',sans-serif">
+        <div style="height:54px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:center;gap:12px;padding:0 16px">
+          <span style="width:9px;height:9px;background:#d9a24a"></span>
+          <span style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#e7e7ea">LÖP YER İSTASYONU</span>
+          <div style="flex:1"></div>
+          <span style="font:700 15px/1 'Barlow Condensed',sans-serif;letter-spacing:0.14em;color:#d9a24a">DISARMED — 1 UYARI</span>
+        </div>
+        <div style="height:38px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:stretch;padding:0 12px;gap:2px">
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">UÇUŞ</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">HARİTA &amp; GÖREV</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">PARAMETRELER</div>
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid #94bce3;color:#e7e7ea;font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">PRE-ARM</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">LOG</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">RAPOR</div>
+        </div>
+        <div style="flex:1;display:flex;gap:20px;padding:24px;min-height:0">
+          <div style="flex:1;display:flex;flex-direction:column;gap:14px;min-width:0">
+            <div style="display:flex;align-items:baseline;gap:14px">
+              <h3 style="margin:0;font:600 26px/1 'Barlow Condensed',sans-serif;letter-spacing:0.06em;color:#e7e7ea">UÇUŞ ÖNCESİ KONTROLLER</h3>
+              <span style="font:500 13px/1 'Barlow',sans-serif;color:#7e9cb8">MAVLink verisinden otomatik · 5 / 6 geçti</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:grid;grid-template-columns:230px 220px 1fr 90px;gap:14px;align-items:center;border:1px solid rgba(143,191,122,0.4);padding:14px 16px">
+                <span style="font:600 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.1em;color:#e7e7ea">GPS FIX</span>
+                <span style="font:600 16px/1 'Barlow',sans-serif;color:#a8cf94">3D Fix · 14 uydu</span>
+                <span style="font:500 13px/1 'Barlow',sans-serif;color:#7e9cb8">HDOP 0.8 · eşik: fix ≥ 3 ve uydu ≥ 6</span>
+                <span style="font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#8fbf7a;text-align:right">GEÇTİ</span>
+              </div>
+              <div style="display:grid;grid-template-columns:230px 220px 1fr 90px;gap:14px;align-items:center;border:1px solid rgba(143,191,122,0.4);padding:14px 16px">
+                <span style="font:600 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.1em;color:#e7e7ea">EKF DURUMU</span>
+                <span style="font:600 16px/1 'Barlow',sans-serif;color:#a8cf94">Bayrak 0x01f · hata 0.21</span>
+                <span style="font:500 13px/1 'Barlow',sans-serif;color:#7e9cb8">Tüm EKF bayrakları sağlıklı, hata &lt; 0.50</span>
+                <span style="font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#8fbf7a;text-align:right">GEÇTİ</span>
+              </div>
+              <div style="display:grid;grid-template-columns:230px 220px 1fr 90px;gap:14px;align-items:center;border:1px solid rgba(143,191,122,0.4);padding:14px 16px">
+                <span style="font:600 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.1em;color:#e7e7ea">BATARYA</span>
+                <span style="font:600 16px/1 'Barlow',sans-serif;color:#a8cf94">24.6 V · %78</span>
+                <span style="font:500 13px/1 'Barlow',sans-serif;color:#7e9cb8">Eşik: &gt; 14.0 V ve &gt; %20 (config.json)</span>
+                <span style="font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#8fbf7a;text-align:right">GEÇTİ</span>
+              </div>
+              <div style="display:grid;grid-template-columns:230px 220px 1fr 90px;gap:14px;align-items:center;border:1px solid rgba(143,191,122,0.4);padding:14px 16px">
+                <span style="font:600 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.1em;color:#e7e7ea">RC / RSSI</span>
+                <span style="font:600 16px/1 'Barlow',sans-serif;color:#a8cf94">RSSI 92 · failsafe yok</span>
+                <span style="font:500 13px/1 'Barlow',sans-serif;color:#7e9cb8">8 kanal okunuyor, throttle 1042</span>
+                <span style="font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#8fbf7a;text-align:right">GEÇTİ</span>
+              </div>
+              <div style="display:grid;grid-template-columns:230px 220px 1fr 90px;gap:14px;align-items:center;border:1px solid rgba(217,162,74,0.55);background:rgba(217,162,74,0.08);padding:14px 16px">
+                <span style="font:600 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.1em;color:#e7e7ea">IMU SICAKLIĞI</span>
+                <span style="font:600 16px/1 'Barlow',sans-serif;color:#d9a24a">IMU3 47.6 °C</span>
+                <span style="font:500 13px/1 'Barlow',sans-serif;color:#d9a24a">Isıtıcı hedefi 45 °C — 3 °C üzerinde, PID oturuyor</span>
+                <span style="font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#d9a24a;text-align:right">DİKKAT</span>
+              </div>
+              <div style="display:grid;grid-template-columns:230px 220px 1fr 90px;gap:14px;align-items:center;border:1px solid rgba(143,191,122,0.4);padding:14px 16px">
+                <span style="font:600 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.1em;color:#e7e7ea">FENCE &amp; GÖREV</span>
+                <span style="font:600 16px/1 'Barlow',sans-serif;color:#a8cf94">Çit etkin · 6 WP yüklü</span>
+                <span style="font:500 13px/1 'Barlow',sans-serif;color:#7e9cb8">Üst sınır 120 m · ihlalde RTL</span>
+                <span style="font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;color:#8fbf7a;text-align:right">GEÇTİ</span>
+              </div>
+            </div>
+            <div class="card" style="flex:1;min-height:0;padding:14px 16px;gap:8px;overflow:hidden">
+              <span class="card-kicker" style="font-size:11px;letter-spacing:0.2em">ARDUPILOT MESAJLARI</span>
+              <div style="font:500 13px/1.85 'Barlow',sans-serif;color:#9ebbd8">
+                <div><span style="color:#627d98">[6]</span> EKF3 IMU0 origin set</div>
+                <div><span style="color:#627d98">[6]</span> Terrain: 12 tile yüklendi, 0 bekliyor</div>
+                <div><span style="color:#d9a24a">[4] PreArm: IMU3 sıcaklığı hedefin üzerinde</span></div>
+                <div><span style="color:#627d98">[6]</span> Fence enabled (alt max 120 m)</div>
+                <div><span style="color:#8fbf7a">[6] Arm izni verildi — motorlar hazır</span></div>
+              </div>
+            </div>
+          </div>
+          <div style="width:430px;flex:none;display:flex;flex-direction:column;gap:14px">
+            <div class="blueprint card" style="position:relative;padding:18px">
+              <i class="corner tl"></i>
+              <i class="corner tr"></i>
+              <i class="corner bl"></i>
+              <i class="corner br"></i>
+              <div class="card-kicker" style="font-size:11px;letter-spacing:0.2em;margin-bottom:12px">ARM DURUMU</div>
+              <div class="card-title" style="font-size:46px;letter-spacing:0.06em;color:#d9a24a;margin-bottom:6px">HAZIR — DİKKATLİ</div>
+              <div style="font:500 14px/1.6 'Barlow',sans-serif;color:#9ebbd8;margin-bottom:16px">Zorunlu kontroller geçti. IMU3 sıcaklığı uyarı seviyesinde; 30 sn içinde düşmezse kalkışı bekletin.</div>
+              <button style="width:100%;height:52px;font-size:17px;letter-spacing:0.18em" class="btn btn-primary">MOTORLARI ARM ET</button>
+            </div>
+            <div class="card" style="padding:16px;gap:10px">
+              <span class="card-kicker" style="font-size:11px;letter-spacing:0.2em">GÜVENLİK KATMANLARI</span>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">K1 · GCS failsafe<span style="color:#8fbf7a;font-weight:600">etkin · 10 s</span></div>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">K2 · RTL izleyici<span style="color:#8fbf7a;font-weight:600">etkin</span></div>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">K3 · Rüzgar koruma<span style="color:#8fbf7a;font-weight:600">5.5 / 11.1 / 16.7</span></div>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">K4 · Arazi analizi<span style="color:#8fbf7a;font-weight:600">12 nokta hazır</span></div>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">K5 · Lua scriptleri<span style="color:#8fbf7a;font-weight:600">5 script çalışıyor</span></div>
+            </div>
+            <div class="card" style="padding:16px;gap:10px">
+              <span class="card-kicker" style="font-size:11px;letter-spacing:0.2em">KALİBRASYON</span>
+              <button style="height:38px;font-size:12px" class="btn btn-secondary">GYRO KALİBRASYONU</button>
+              <button style="height:38px;font-size:12px" class="btn btn-secondary">MANYETOMETRE</button>
+              <button style="height:38px;font-size:12px" class="btn btn-secondary">İVMEÖLÇER</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1f LOG -->
+    <div id="1f" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <span style="font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;background:#5980a6;color:#f2f2f3;padding:4px 9px">1F</span>
+        <span style="font:600 20px/1 'Barlow Condensed',sans-serif;letter-spacing:0.04em">Log indirme</span>
+      </div>
+      <div data-screen-label="1F Log" class="cockpit" style="width:1920px;height:1080px;background:#1d2d3d;border:1px solid rgba(29,31,32,0.2);display:flex;flex-direction:column;overflow:hidden;font-family:'Barlow',sans-serif">
+        <div style="height:54px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:center;gap:12px;padding:0 16px">
+          <span style="width:9px;height:9px;background:#8fbf7a"></span>
+          <span style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#e7e7ea">LÖP YER İSTASYONU</span>
+          <div style="flex:1"></div>
+          <span style="font:500 12px/1 'Barlow',sans-serif;color:#7e9cb8">Karttan 14 log okundu · toplam 412 MB</span>
+        </div>
+        <div style="height:38px;flex:none;background:#16222e;border-bottom:1px solid rgba(148,188,227,0.22);display:flex;align-items:stretch;padding:0 12px;gap:2px">
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">UÇUŞ</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">HARİTA &amp; GÖREV</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">PARAMETRELER</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">PRE-ARM</div>
+          <div style="display:flex;align-items:center;padding:0 20px;border-bottom:2px solid #94bce3;color:#e7e7ea;font:700 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">LOG</div>
+          <div style="display:flex;align-items:center;padding:0 20px;color:#7e9cb8;font:600 13px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em">RAPOR</div>
+        </div>
+        <div style="flex:1;display:flex;gap:20px;padding:24px;min-height:0">
+          <div style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px">
+              <button style="height:34px;padding:0 16px;font-size:12px" class="btn btn-primary">LOG LİSTESİNİ AL</button>
+              <button style="height:34px;padding:0 16px;font-size:12px" class="btn btn-secondary">SEÇİLİ LOGU İNDİR</button>
+              <button style="height:34px;padding:0 16px;font-size:12px" class="btn btn-secondary">KAYDEDİLEN LOGU AÇ</button>
+              <div style="flex:1"></div>
+              <span style="font:500 12px/1 'Barlow',sans-serif;color:#7e9cb8">İndirme klasörü: C:\LÖP\loglar</span>
+            </div>
+            <div style="flex:none;border:1px solid rgba(148,188,227,0.22);padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#bdd8f2"><span>log_014.bin indiriliyor — 38.4 / 52.1 MB</span><span style="color:#94bce3;font-weight:600">%74 · ~40 sn</span></div>
+              <div style="height:12px;border:1px solid rgba(148,188,227,0.35);padding:1px"><div style="width:74%;height:100%;background:#94bce3"></div></div>
+            </div>
+            <div class="blueprint" style="position:relative;flex:1;border:1px solid rgba(148,188,227,0.22);display:flex;flex-direction:column;min-height:0">
+              <i class="corner tl"></i>
+              <i class="corner tr"></i>
+              <i class="corner bl"></i>
+              <i class="corner br"></i>
+              <div style="flex:1;overflow:hidden">
+                <table class="table" style="font-variant-numeric:tabular-nums">
+                  <thead><tr style="background:#16222e"><th style="width:90px;padding:10px 16px">Log ID</th><th style="width:130px">Boyut</th><th style="width:210px">Tarih (UTC)</th><th style="width:130px">Süre</th><th style="">Özet</th><th style="width:120px">Durum</th></tr></thead>
+                  <tbody>
+                    <tr aria-selected="true"><td style="padding:10px 16px;font-weight:600">014</td><td>52.1 MB</td><td>2026-08-21 11:04</td><td>00:18:22</td><td style="color:var(--color-accent-2-400)">Otomatik görev · 6 WP</td><td style="color:var(--color-accent)">indiriliyor</td></tr>
+                    <tr><td style="padding:10px 16px;font-weight:600">013</td><td>31.7 MB</td><td>2026-08-20 15:41</td><td>00:11:08</td><td style="color:var(--color-accent-2-400)">Loiter testi</td><td style="color:#8fbf7a">indirildi</td></tr>
+                    <tr><td style="padding:10px 16px;font-weight:600">012</td><td>44.2 MB</td><td>2026-08-20 09:16</td><td>00:15:37</td><td style="color:var(--color-accent-2-400)">RTL failsafe senaryosu</td><td style="color:#8fbf7a">indirildi</td></tr>
+                    <tr><td style="padding:10px 16px;font-weight:600">011</td><td>18.9 MB</td><td>2026-08-19 17:02</td><td>00:06:44</td><td style="color:var(--color-accent-2-400)">Rüzgar 11 m/s — RTL tetiklendi</td><td style="color:var(--color-accent-2-600)">kartta</td></tr>
+                    <tr><td style="padding:10px 16px;font-weight:600">010</td><td>27.4 MB</td><td>2026-08-19 10:28</td><td>00:09:51</td><td style="color:var(--color-accent-2-400)">Arazi takibi</td><td style="color:var(--color-accent-2-600)">kartta</td></tr>
+                    <tr><td style="padding:10px 16px;font-weight:600">009</td><td>12.3 MB</td><td>2026-08-18 14:55</td><td>00:04:12</td><td style="color:var(--color-accent-2-400)">Kalibrasyon sonrası hover</td><td style="color:var(--color-accent-2-600)">kartta</td></tr>
+                    <tr><td style="padding:10px 16px;font-weight:600">008</td><td>39.6 MB</td><td>2026-08-18 08:12</td><td>00:13:26</td><td style="color:var(--color-accent-2-400)">SITL karşılaştırma uçuşu</td><td style="color:var(--color-accent-2-600)">kartta</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            </div>
+          </div>
+          <div style="width:420px;flex:none;display:flex;flex-direction:column;gap:14px">
+            <div class="card" style="padding:16px;gap:10px">
+              <span class="card-kicker" style="font-size:11px;letter-spacing:0.2em">SEÇİLİ LOG · 014</span>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">Uçuş süresi<span style="color:#e7e7ea;font-weight:600">18 dk 22 sn</span></div>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">Azami irtifa<span style="color:#e7e7ea;font-weight:600">96.4 m</span></div>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">Azami hız<span style="color:#e7e7ea;font-weight:600">12.8 m/s</span></div>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">Katedilen mesafe<span style="color:#e7e7ea;font-weight:600">4.62 km</span></div>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">Batarya tüketimi<span style="color:#e7e7ea;font-weight:600">3820 mAh</span></div>
+              <div style="display:flex;justify-content:space-between;font:500 13px/1 'Barlow',sans-serif;color:#9ebbd8">Kritik olay<span style="color:#d9a24a;font-weight:600">1 (rüzgar dikkat)</span></div>
+            </div>
+            <div class="card" style="flex:1;padding:16px;gap:10px">
+              <span class="card-kicker" style="font-size:11px;letter-spacing:0.2em">YEREL CSV LOGLARI</span>
+              <div style="font:500 13px/1.9 'Barlow',sans-serif;color:#9ebbd8">
+                <div>ucus_2026-08-21_1104.csv <span style="color:#627d98">· 2.1 MB</span></div>
+                <div>ucus_2026-08-20_1541.csv <span style="color:#627d98">· 1.4 MB</span></div>
+                <div>ucus_2026-08-20_0916.csv <span style="color:#627d98">· 1.9 MB</span></div>
+                <div>ucus_2026-08-19_1702.csv <span style="color:#627d98">· 0.8 MB</span></div>
+              </div>
+              <div style="flex:1"></div>
+              <button style="height:40px;font-size:12px" class="btn btn-secondary">KLASÖRÜ AÇ</button>
+              <button style="height:40px;font-size:12px" class="btn btn-primary">HTML RAPOR OLUŞTUR</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1g BAĞLANTI / AÇILIŞ -->
+    <div id="1g" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <span style="font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;background:#5980a6;color:#f2f2f3;padding:4px 9px">1G</span>
+        <span style="font:600 20px/1 'Barlow Condensed',sans-serif;letter-spacing:0.04em">Açılış / bağlantı ekranı</span>
+      </div>
+      <div data-screen-label="1G Bağlantı" class="cockpit" style="width:1920px;height:1080px;background:#1d2d3d;position:relative;border:1px solid rgba(29,31,32,0.2);overflow:hidden;font-family:'Barlow',sans-serif;background-image:linear-gradient(rgba(148,188,227,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(148,188,227,0.05) 1px,transparent 1px);background-size:80px 80px">
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:80px;padding:0 120px">
+          <div style="width:560px;display:flex;flex-direction:column;gap:22px">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <span style="font:600 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.3em;color:#7e9cb8">DOĞUŞ ÜNİVERSİTESİ · LÖP PROJESİ</span>
+              <h1 style="margin:0;font:700 66px/0.95 'Barlow Condensed',sans-serif;letter-spacing:0.02em;color:#e7e7ea">TÜRKÇE YER<br>İSTASYONU</h1>
+              <span style="font:500 16px/1.6 'Barlow',sans-serif;color:#9ebbd8">Yerli uçuş kontrol kartı için ArduPilot uyumlu yer kontrol yazılımı · v0.3</span>
+            </div>
+            <div style="height:1px;background:rgba(148,188,227,0.22)"></div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#7e9cb8">BAĞLANTI DİZESİ</span>
+                <input class="input" value="tcp:127.0.0.1:5762" readonly style="height:46px;background:#111c26;border-color:var(--color-accent);font-size:17px">
+                <span style="font:400 12px/1 'Barlow',sans-serif;color:#627d98">tcp:host:port · udp:host:port · COM4,115200 · şifreli Pi köprüsü için tcp:PI_IP:5760</span>
+              </div>
+              <div style="display:flex;gap:8px">
+                <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+                  <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#7e9cb8">SON KULLANILANLAR</span>
+                  <div style="height:38px;background:#111c26;border:1px solid rgba(148,188,227,0.28);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font:500 14px/1 'Barlow',sans-serif;color:#bdd8f2">tcp:127.0.0.1:5762 — SITL İstanbul<span style="color:#627d98">▾</span></div>
+                </div>
+                <div style="width:190px;display:flex;flex-direction:column;gap:6px">
+                  <span style="font:600 10px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#7e9cb8">ŞİFRELEME</span>
+                  <div style="height:38px;background:#111c26;border:1px solid rgba(148,188,227,0.28);display:flex;align-items:center;padding:0 12px;font:500 14px/1 'Barlow',sans-serif;color:#a8cf94">AES-256-GCM açık</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:10px;margin-top:4px">
+                <button style="flex:1;height:56px;font-size:18px;letter-spacing:0.2em" class="btn btn-primary">BAĞLAN</button>
+                <button style="width:210px;height:56px;font-size:14px;letter-spacing:0.16em" class="btn btn-secondary">SITL BAŞLAT</button>
+              </div>
+            </div>
+          </div>
+          <div class="blueprint card" style="position:relative;width:520px;padding:26px;gap:16px">
+            <i class="corner tl"></i>
+            <i class="corner tr"></i>
+            <i class="corner bl"></i>
+            <i class="corner br"></i>
+            <span class="card-kicker" style="font-size:11px;letter-spacing:0.22em">SİSTEM ÖN KONTROLÜ</span>
+            <div style="display:flex;flex-direction:column;gap:9px;font:500 14px/1 'Barlow',sans-serif">
+              <div style="display:flex;justify-content:space-between;color:#9ebbd8">pymavlink<span style="color:#8fbf7a">2.4.41 ✓</span></div>
+              <div style="display:flex;justify-content:space-between;color:#9ebbd8">Harita motoru (Leaflet)<span style="color:#8fbf7a">yerel ✓</span></div>
+              <div style="display:flex;justify-content:space-between;color:#9ebbd8">Tile önbelleği<span style="color:#8fbf7a">1.2 GB · 8412 tile</span></div>
+              <div style="display:flex;justify-content:space-between;color:#9ebbd8">Arazi verisi (Copernicus)<span style="color:#8fbf7a">İstanbul yüklü ✓</span></div>
+              <div style="display:flex;justify-content:space-between;color:#9ebbd8">Bağlantı anahtarı<span style="color:#8fbf7a">gcs_anahtar.key ✓</span></div>
+              <div style="display:flex;justify-content:space-between;color:#9ebbd8">rasterio / scipy<span style="color:#d9a24a">rasterio eksik — arazi analizi kapalı</span></div>
+            </div>
+            <div style="height:1px;background:rgba(148,188,227,0.18)"></div>
+            <span class="card-kicker" style="font-size:11px;letter-spacing:0.22em">UÇUŞ ALANI</span>
+            <div style="display:flex;flex-direction:column;gap:9px;font:500 14px/1 'Barlow',sans-serif">
+              <div style="display:flex;justify-content:space-between;color:#9ebbd8">Kayıtlı alan<span style="color:#e7e7ea">Kadıköy sahil · 40.9923, 29.1244</span></div>
+              <div style="display:flex;justify-content:space-between;color:#9ebbd8">Fence<span style="color:#e7e7ea">1.2 × 0.9 km · üst 120 m</span></div>
+              <div style="display:flex;justify-content:space-between;color:#9ebbd8">Güvenli iniş noktası<span style="color:#e7e7ea">12 hazır</span></div>
+            </div>
+            <div style="flex:1"></div>
+            <div style="border:1px solid rgba(148,188,227,0.25);padding:12px;font:500 12px/1.7 'Barlow',sans-serif;color:#7e9cb8">Bağlandığında GCS failsafe (FS_GCS_ENABLE=1, 10 s) otomatik ayarlanır ve uçuş logu yazmaya başlar.</div>
+          </div>
+        </div>
+        <div style="position:absolute;bottom:0;left:0;right:0;height:44px;background:#16222e;border-top:1px solid rgba(148,188,227,0.22);display:flex;align-items:center;gap:20px;padding:0 20px;font:500 12px/1 'Barlow',sans-serif;color:#627d98">
+          <span>Bağlantı bekleniyor…</span><span>STM32H743VIT6 · ICM-42688-P ×2 + BMI088</span><div style="flex:1"></div><span>config.json yüklendi · 9 eşik grubu</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1h RAPOR -->
+    <div id="1h" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px">
+        <span style="font:700 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.16em;background:#5980a6;color:#f2f2f3;padding:4px 9px">1H</span>
+        <span style="font:600 20px/1 'Barlow Condensed',sans-serif;letter-spacing:0.04em">Uçuş sonrası rapor</span>
+        <span style="font:400 13px/1 'Barlow',sans-serif;color:#5d5d60">Yazdırılabilir HTML — tasarım sisteminin açık zemini</span>
+      </div>
+      <div data-screen-label="1H Rapor" style="width:1920px;height:1080px;background:#f2f2f3;border:1px solid rgba(29,31,32,0.2);overflow:hidden;font-family:'Barlow',sans-serif;display:flex;flex-direction:column">
+        <div style="height:54px;flex:none;background:#16222e;display:flex;align-items:center;gap:12px;padding:0 16px">
+          <span style="font:700 17px/1 'Barlow Condensed',sans-serif;letter-spacing:0.18em;color:#e7e7ea">LÖP YER İSTASYONU</span>
+          <div style="flex:1"></div>
+          <button style="height:30px;padding:0 14px;font-size:12px" class="btn btn-primary">PDF OLARAK KAYDET</button>
+          <button style="height:30px;padding:0 14px;font-size:12px" class="btn btn-secondary">TARAYICIDA AÇ</button>
+        </div>
+        <div style="flex:1;padding:40px 64px;display:flex;flex-direction:column;gap:26px;min-height:0">
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(29,31,32,0.16);padding-bottom:16px">
+            <div>
+              <div style="font:600 12px/1 'Barlow Condensed',sans-serif;letter-spacing:0.26em;color:#5980a6">UÇUŞ RAPORU · LOG 014</div>
+              <h2 style="margin:6px 0 0;font:700 44px/1 'Barlow Condensed',sans-serif;letter-spacing:0.01em;color:#1d1f20">Kadıköy sahil — otomatik görev</h2>
+            </div>
+            <div style="text-align:right;font:500 14px/1.7 'Barlow',sans-serif;color:#5d5d60">21 Ağustos 2026 · 11:04 UTC<br>Pilot: G. Kocaman · Kart: LÖP-H743 #002</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:14px">
+            <div class="blueprint card" style="position:relative;padding:14px 16px;gap:0"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><div class="card-kicker" style="font-size:10px;letter-spacing:0.18em;color:var(--color-neutral-600)">SÜRE</div><div class="card-title" style="font-size:34px;line-height:1.15">18:22</div></div>
+            <div class="blueprint card" style="position:relative;padding:14px 16px;gap:0"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><div class="card-kicker" style="font-size:10px;letter-spacing:0.18em;color:var(--color-neutral-600)">MESAFE</div><div class="card-title" style="font-size:34px;line-height:1.15">4.62 km</div></div>
+            <div class="blueprint card" style="position:relative;padding:14px 16px;gap:0"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><div class="card-kicker" style="font-size:10px;letter-spacing:0.18em;color:var(--color-neutral-600)">AZAMİ İRTİFA</div><div class="card-title" style="font-size:34px;line-height:1.15">96.4 m</div></div>
+            <div class="blueprint card" style="position:relative;padding:14px 16px;gap:0"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><div class="card-kicker" style="font-size:10px;letter-spacing:0.18em;color:var(--color-neutral-600)">AZAMİ HIZ</div><div class="card-title" style="font-size:34px;line-height:1.15">12.8 m/s</div></div>
+            <div class="blueprint card" style="position:relative;padding:14px 16px;gap:0"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><div class="card-kicker" style="font-size:10px;letter-spacing:0.18em;color:var(--color-neutral-600)">TÜKETİM</div><div class="card-title" style="font-size:34px;line-height:1.15">3820 mAh</div></div>
+            <div class="blueprint card" style="position:relative;padding:14px 16px;gap:0"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i><div class="card-kicker" style="font-size:10px;letter-spacing:0.18em;color:var(--color-neutral-600)">OLAY</div><div class="card-title" style="font-size:34px;line-height:1.15;color:var(--color-accent-700)">1 uyarı</div></div>
+          </div>
+          <div style="flex:1;display:flex;gap:24px;min-height:0">
+            <div style="flex:1.4;display:flex;flex-direction:column;gap:12px;min-width:0">
+              <span class="card-kicker" style="font-size:12px;letter-spacing:0.22em">İRTİFA &amp; HIZ PROFİLİ</span>
+              <div style="position:relative;flex:1;border:1px solid rgba(29,31,32,0.2);background-image:linear-gradient(rgba(29,31,32,0.07) 1px,transparent 1px),linear-gradient(90deg,rgba(29,31,32,0.07) 1px,transparent 1px);background-size:64px 48px;min-height:0">
+                <svg viewBox="0 0 1000 400" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                  <polyline points="0,380 60,200 180,150 320,120 460,90 600,110 720,60 840,180 940,340 1000,390" fill="none" stroke="#5980a6" stroke-width="3"></polyline>
+                  <polyline points="0,395 60,300 180,270 320,290 460,240 600,260 720,230 840,300 940,370 1000,396" fill="none" stroke="#94bce3" stroke-width="2" stroke-dasharray="8 6"></polyline>
+                </svg>
+                <div style="position:absolute;top:10px;left:14px;display:flex;gap:18px;font:500 12px/1 'Barlow',sans-serif;color:#5d5d60"><span style="color:#416180">— irtifa (m)</span><span style="color:#5980a6">-- hız (m/s)</span></div>
+              </div>
+              <span class="card-kicker" style="font-size:12px;letter-spacing:0.22em">OLAY ZAMAN ÇİZELGESİ</span>
+              <div class="card" style="padding:12px 16px;gap:7px;font-size:13px;color:var(--color-neutral-800)">
+                <div style="display:flex;gap:16px"><span style="width:70px;color:#7a7a7d">00:00:12</span><span>Arm edildi, TAKEOFF 15 m</span></div>
+                <div style="display:flex;gap:16px"><span style="width:70px;color:#7a7a7d">00:02:41</span><span>Otomatik göreve geçildi — 6 waypoint</span></div>
+                <div style="display:flex;gap:16px"><span style="width:70px;color:#7a7a7d">00:09:18</span><span style="color:#8f6a1e">Rüzgar 6.1 m/s — dikkat eşiği aşıldı, hız kısıtlandı</span></div>
+                <div style="display:flex;gap:16px"><span style="width:70px;color:#7a7a7d">00:14:52</span><span>WP6 · LAND komutu, iniş başladı</span></div>
+                <div style="display:flex;gap:16px"><span style="width:70px;color:#7a7a7d">00:18:22</span><span>Disarm, log kapatıldı</span></div>
+              </div>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:0">
+              <span class="card-kicker" style="font-size:12px;letter-spacing:0.22em">UÇUŞ İZİ</span>
+              <div style="position:relative;flex:1;border:1px solid rgba(29,31,32,0.2);background-image:linear-gradient(rgba(29,31,32,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(29,31,32,0.06) 1px,transparent 1px);background-size:48px 48px;min-height:0">
+                <svg viewBox="0 0 600 500" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                  <polyline points="120,420 200,340 300,250 420,160 500,220 380,330 240,400 130,430" fill="none" stroke="#5980a6" stroke-width="3"></polyline>
+                </svg>
+                <div style="position:absolute;left:20%;top:84%;transform:translate(-50%,-50%);width:14px;height:14px;border-radius:50%;background:#5980a6"></div>
+                <div style="position:absolute;left:21.7%;top:86%;transform:translate(-50%,-50%);width:14px;height:14px;border-radius:50%;border:2px solid #5980a6"></div>
+                <div style="position:absolute;bottom:10px;right:12px;font:400 10px/1 'Barlow',sans-serif;color:#7a7a7d">kalkış ● · iniş ○ · 4.62 km</div>
+              </div>
+              <span class="card-kicker" style="font-size:12px;letter-spacing:0.22em">SİSTEM SAĞLIĞI</span>
+              <div class="card" style="padding:12px 16px;gap:7px;font-size:13px;color:var(--color-neutral-800)">
+                <div style="display:flex;justify-content:space-between">EKF ortalama hata<span style="font-weight:600">0.19</span></div>
+                <div style="display:flex;justify-content:space-between">GPS asgari uydu<span style="font-weight:600">11</span></div>
+                <div style="display:flex;justify-content:space-between">IMU azami sıcaklık<span style="font-weight:600;color:#8f6a1e">48.1 °C (IMU3)</span></div>
+                <div style="display:flex;justify-content:space-between">ESC azami sıcaklık<span style="font-weight:600">82 °C (M4)</span></div>
+                <div style="display:flex;justify-content:space-between">Titreşim (clip)<span style="font-weight:600">0</span></div>
+                <div style="display:flex;justify-content:space-between">Fence ihlali<span style="font-weight:600">yok</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;uyariBandi&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Durum&quot;},&quot;motorSayisi&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:4,&quot;min&quot;:4,&quot;max&quot;:8,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Durum&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const n = Math.max(4, Math.min(8, this.props.motorSayisi ?? 4));
+    const veri = [
+      ["4780", "58 °C", "24.5 V", "11.2 A"],
+      ["4812", "61 °C", "24.5 V", "11.6 A"],
+      ["4755", "57 °C", "24.6 V", "10.9 A"],
+      ["4801", "82 °C", "24.5 V", "12.1 A"],
+      ["4790", "59 °C", "24.6 V", "11.0 A"],
+      ["4768", "60 °C", "24.5 V", "11.3 A"],
+      ["4822", "62 °C", "24.5 V", "11.8 A"],
+      ["4744", "56 °C", "24.6 V", "10.7 A"],
+    ];
+    return {
+      uyariBandi: this.props.uyariBandi ?? false,
+      escler: veri.slice(0, n).map((v, i) => ({
+        ad: "M" + (i + 1), rpm: v[0], sicaklik: v[1], volt: v[2], akim: v[3],
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>
