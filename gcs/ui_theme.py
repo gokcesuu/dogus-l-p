@@ -1,44 +1,48 @@
 KOYU_TEMA = """
-QMainWindow, QWidget { background-color: #0d1b2a; color: #c8d8e8; }
-QTabWidget::pane { border: 1px solid #2a4060; }
+QMainWindow, QWidget { background-color: #16222e; color: #bdd8f2; font-family: 'Barlow', sans-serif; }
+QTabWidget::pane { border: 1px solid rgba(148,188,227,0.22); }
 QTabBar::tab {
-    background: #0a1520; color: #7eb8e0; padding: 8px 20px;
-    border: 1px solid #2a4060; border-bottom: none;
+    background: #111c26; color: #7e9cb8; padding: 8px 20px;
+    border: 1px solid rgba(148,188,227,0.22); border-bottom: none;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 600; letter-spacing: 0.04em;
 }
-QTabBar::tab:selected { background: #1a3050; color: #ffffff; }
+QTabBar::tab:selected { background: #1d2d3d; color: #e7e7ea; }
 QGroupBox {
-    border: 1px solid #2a4060; border-radius: 6px;
-    margin-top: 8px; font-weight: bold; color: #7eb8e0;
+    border: 1px solid rgba(148,188,227,0.22); border-radius: 2px;
+    margin-top: 8px; font-weight: 600; color: #7e9cb8;
+    font-family: 'Barlow Condensed', sans-serif; letter-spacing: 0.06em;
 }
 QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
 QPushButton {
-    background-color: #1a3050; color: #c8d8e8;
-    border: 1px solid #2a4060; border-radius: 4px;
+    background-color: #1d2d3d; color: #bdd8f2;
+    border: 1px solid rgba(148,188,227,0.28); border-radius: 4px;
     padding: 6px 12px; font-size: 11px;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 600; letter-spacing: 0.02em;
 }
-QPushButton:hover { background-color: #2a4a70; }
-QPushButton:pressed { background-color: #0a2040; }
-QPushButton:disabled { background-color: #0a1520; color: #445566; }
+QPushButton:hover { background-color: rgba(148,188,227,0.16); }
+QPushButton:pressed { background-color: #111c26; }
+QPushButton:disabled { background-color: #111c26; color: #445566; }
 QLineEdit, QTextEdit {
-    background-color: #0a1520; color: #c8d8e8;
-    border: 1px solid #2a4060; border-radius: 4px; padding: 4px;
+    background-color: #111c26; color: #bdd8f2;
+    border: 1px solid rgba(148,188,227,0.28); border-radius: 4px; padding: 4px;
 }
 QTableWidget {
-    background-color: #0a1520; color: #c8d8e8;
-    border: 1px solid #2a4060; gridline-color: #1a3050;
+    background-color: #111c26; color: #bdd8f2;
+    border: 1px solid rgba(148,188,227,0.22); gridline-color: #1d2d3d;
 }
-QTableWidget::item:selected { background-color: #1a4060; }
+QTableWidget::item:selected { background-color: rgba(148,188,227,0.18); }
 QHeaderView::section {
-    background-color: #0d2040; color: #7eb8e0;
-    border: 1px solid #2a4060; padding: 4px; font-weight: bold;
+    background-color: #1d2d3d; color: #7e9cb8;
+    border: 1px solid rgba(148,188,227,0.22); padding: 4px; font-weight: 600;
+    font-family: 'Barlow Condensed', sans-serif;
 }
 QProgressBar {
-    background-color: #0a1520; border: 1px solid #2a4060;
-    border-radius: 4px; text-align: center; color: #c8d8e8;
+    background-color: #111c26; border: 1px solid rgba(148,188,227,0.28);
+    border-radius: 4px; text-align: center; color: #bdd8f2;
 }
-QProgressBar::chunk { background-color: #1a6faf; border-radius: 3px; }
-QLabel { color: #c8d8e8; }
-QStatusBar { background-color: #0a1520; color: #7eb8e0; }
+QProgressBar::chunk { background-color: #94bce3; border-radius: 3px; }
+QLabel { color: #bdd8f2; }
+QStatusBar { background-color: #111c26; color: #7e9cb8; }
 """
 
 ACİL_STILI = """
@@ -60,3 +64,32 @@ QPushButton:hover { background-color: #2e8b57; }
 """
 
 UYARI_STILI = "background-color: #7b1414; color: white; font-weight: bold; padding: 4px;"
+
+# ── Kokpit paleti (Türkçe Yer İstasyonu tasarımından) ──────────────────────
+# Uçuş ve Harita ekranlarının paylaştığı ortak görsel dil.
+KOKPIT_ZEMIN  = "#16222e"   # ana koyu zemin
+KOKPIT_PANEL  = "#1d2d3d"   # panel/kart zemini
+KOKPIT_KENAR  = "rgba(148,188,227,0.22)"  # ince ayraç/kenarlık
+KOKPIT_VURGU  = "#94bce3"   # birincil vurgu (mavi)
+KOKPIT_VURGU2 = "#bdd8f2"   # açık vurgu / hover
+KOKPIT_ACIL   = "#8f3b34"   # acil buton zemini
+KOKPIT_ACIL2  = "#c25b52"   # acil buton kenar/hover
+KOKPIT_BASARI = "#8fbf7a"   # bağlı/başarı göstergesi
+
+ACİL_STİLİ_KOKPIT = f"""
+QPushButton {{
+    background-color: {KOKPIT_ACIL}; color: #f5f5f8;
+    border: 1px solid {KOKPIT_ACIL2}; border-radius: 4px;
+    padding: 8px 16px; font-weight: bold; font-size: 12px;
+}}
+QPushButton:hover {{ background-color: #a8443c; }}
+"""
+
+BAĞLAN_STİLİ_KOKPIT = f"""
+QPushButton {{
+    background-color: {KOKPIT_VURGU}; color: #12202c;
+    border: none; border-radius: 4px;
+    padding: 6px 16px; font-weight: bold;
+}}
+QPushButton:hover {{ background-color: {KOKPIT_VURGU2}; }}
+"""

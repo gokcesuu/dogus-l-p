@@ -7,6 +7,7 @@ SITL bağlantısı: tcp:127.0.0.1:5762
 import os
 import sys
 import time
+import threading
 
 # QWebEngineView Windows crash fix
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS",
@@ -18,10 +19,10 @@ from PyQt5.QtWidgets import (
     QLineEdit, QTextEdit, QGridLayout, QHBoxLayout, QVBoxLayout,
     QGroupBox, QStatusBar, QTabWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QProgressBar, QMessageBox, QAbstractItemView,
-    QFileDialog, QStackedWidget, QComboBox, QSpinBox,
+    QFileDialog, QStackedWidget, QComboBox, QSpinBox, QToolButton, QScrollArea,
 )
-from PyQt5.QtCore import Qt, QDateTime, QTimer, QThread, pyqtSignal as Signal
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtCore import Qt, QDateTime, QTimer, QThread, QSize, pyqtSignal as Signal
+from PyQt5.QtGui import QFont, QColor, QIcon, QPixmap, QPainter, QPen, QBrush
 
 try:
     from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
@@ -65,7 +66,12 @@ import config_yukleyici as _cfg
 
 from rtl_monitor import RtlIzleyici
 from splash_screen import SplashEkrani
-from ui_theme import ACİL_STILI, BAĞLAN_STILI, KOYU_TEMA, UYARI_STILI
+from ui_theme import (
+    ACİL_STILI, BAĞLAN_STILI, KOYU_TEMA, UYARI_STILI,
+    KOKPIT_ZEMIN, KOKPIT_PANEL, KOKPIT_KENAR, KOKPIT_VURGU, KOKPIT_VURGU2,
+    KOKPIT_ACIL, KOKPIT_ACIL2, KOKPIT_BASARI,
+    ACİL_STİLİ_KOKPIT, BAĞLAN_STİLİ_KOKPIT,
+)
 
 # ── Harita HTML (Leaflet.js) ──────────────────────────────────────────────────
 
@@ -75,46 +81,51 @@ HARITA_HTML = """<!DOCTYPE html>
 <meta charset="utf-8"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="preconnect" href="https://fonts.gstatic.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #0d1b2a; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #16222e; font-family: 'Barlow Condensed', 'Barlow', sans-serif; }
   #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
   #toolbar {
     position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
-    background: rgba(13,27,42,0.92);
+    background: rgba(22,34,46,0.94);
     display: flex; align-items: center; gap: 4px;
-    padding: 4px 6px; border-bottom: 1px solid #2a4060; height: 36px;
+    padding: 4px 6px; border-bottom: 1px solid rgba(148,188,227,0.22); height: 36px;
   }
   #toolbar button, .grp-btn {
-    background: #1a3050; color: #c8d8e8; border: 1px solid #2a4060;
+    background: #1d2d3d; color: #bdd8f2; border: 1px solid rgba(148,188,227,0.28);
     border-radius: 4px; padding: 3px 10px; cursor: pointer; font-size: 12px; height: 28px;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 600; letter-spacing: 0.02em;
   }
-  #toolbar button:hover, .grp-btn:hover { background: #2a4060; }
-  #toolbar button.green { background: #1a5c2a; border-color: #2a8c3a; }
-  #toolbar button.red   { background: #7b1414; border-color: #b02020; }
+  #toolbar button:hover, .grp-btn:hover { background: rgba(148,188,227,0.16); }
+  #toolbar button.green { background: #94bce3; color: #12202c; border-color: #94bce3; }
+  #toolbar button.red   { background: #8f3b34; border-color: #c25b52; }
   #toolbar button:disabled { opacity: 0.4; cursor: default; }
-  #konum { margin-left: auto; color: #7eb8e0; font-size: 11px; white-space: nowrap; }
+  #konum { margin-left: auto; color: #7e9cb8; font-size: 11px; white-space: nowrap; }
   /* Dropdown grupları */
   .grp { position: relative; display: inline-block; }
   .grp-menu {
     display: none; position: absolute; top: 30px; left: 0; z-index: 2000;
-    background: #0d1b2a; border: 1px solid #2a4060; border-radius: 4px;
+    background: #1d2d3d; border: 1px solid rgba(148,188,227,0.22); border-radius: 4px;
     min-width: 160px; padding: 4px 0; box-shadow: 0 4px 12px rgba(0,0,0,0.6);
   }
   .grp:hover .grp-menu { display: block; }
   .grp-menu button {
     display: block; width: 100%; text-align: left;
-    background: none; border: none; color: #c8d8e8;
+    background: none; border: none; color: #bdd8f2;
     padding: 6px 14px; cursor: pointer; font-size: 12px; border-radius: 0;
+    font-family: 'Barlow Condensed', sans-serif;
   }
-  .grp-menu button:hover { background: #1a3050; }
-  .grp-menu hr { border: none; border-top: 1px solid #2a4060; margin: 3px 0; }
+  .grp-menu button:hover { background: rgba(148,188,227,0.14); }
+  .grp-menu hr { border: none; border-top: 1px solid rgba(148,188,227,0.22); margin: 3px 0; }
   #durum {
     position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
-    z-index: 1000; background: rgba(13,27,42,0.88);
-    color: #7eb8e0; font-size: 15px; padding: 7px 18px;
-    border-radius: 4px; border: 1px solid #2a4060;
+    z-index: 1000; background: rgba(22,34,46,0.92);
+    color: #bdd8f2; font-size: 15px; padding: 7px 18px;
+    border-radius: 4px; border: 1px solid rgba(148,188,227,0.28);
     display: none; white-space: nowrap;
+    font-family: 'Barlow', sans-serif;
   }
   @keyframes inisHedefNabiz {
     0%   { transform: scale(0.7); opacity: 0.9; }
@@ -233,11 +244,11 @@ map.on('contextmenu', function(e) {
     + '<div style="padding:3px 10px;color:#7eb8e0;font-size:10px;border-bottom:1px solid #2a4060;">'
     + lat + ', ' + lon + '</div>'
     + '<div style="cursor:pointer;padding:6px 12px;color:#80cbc4;"'
-    + ' onmouseover="this.style.background=\'#1a3050\'" onmouseout="this.style.background=\'\'"'
-    + ' onclick="_sagTikMenuKapat();window.location.href=\'gcs://guided-git?lat=' + lat + '&lon=' + lon + '\'">&#128681; Buraya git (GUIDED)</div>'
+    + ' onmouseover="this.style.background=\\'#1a3050\\'" onmouseout="this.style.background=\\'\\'"'
+    + ' onclick="_sagTikMenuKapat();window.location.href=\\'gcs://guided-git?lat=' + lat + '&lon=' + lon + '\\'">&#128681; Buraya git (GUIDED)</div>'
     + '<div style="cursor:pointer;padding:6px 12px;color:#a5d6a7;"'
-    + ' onmouseover="this.style.background=\'#1a3050\'" onmouseout="this.style.background=\'\'"'
-    + ' onclick="_sagTikMenuKapat();window.location.href=\'gcs://wp-ekle-koordinat?lat=' + lat + '&lon=' + lon + '\'">&#128205; WP Ekle</div>'
+    + ' onmouseover="this.style.background=\\'#1a3050\\'" onmouseout="this.style.background=\\'\\'"'
+    + ' onclick="_sagTikMenuKapat();window.location.href=\\'gcs://wp-ekle-koordinat?lat=' + lat + '&lon=' + lon + '\\'">&#128205; WP Ekle</div>'
     + '</div>';
   _sagTikPopup = L.popup({closeButton:false, offset:[0,0], className:'sagTikPopup'})
     .setLatLng(e.latlng).setContent(icerik).openOn(map);
@@ -597,20 +608,20 @@ function _wpMarkerEkle(idx) {
       + '<div style="padding:2px 8px;color:#aaa;font-size:10px;border-bottom:1px solid #2a4060;margin-bottom:2px;">'
       + 'WP ' + (idx + 1) + '</div>'
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#ef9a9a;"'
-      + ' onmouseover="this.style.background=\'#2a1a1a\'" onmouseout="this.style.background=\'\'"'
+      + ' onmouseover="this.style.background=\\'#2a1a1a\\'" onmouseout="this.style.background=\\'\\'"'
       + ' onclick="_wpCtxKapat();wpSil(' + idx + ')">Sil</div>'
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#80cbc4;"'
-      + ' onmouseover="this.style.background=\'#1a2a2a\'" onmouseout="this.style.background=\'\'"'
-      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'LOITER_UNLIMITED\')">Loiter Yap</div>'
+      + ' onmouseover="this.style.background=\\'#1a2a2a\\'" onmouseout="this.style.background=\\'\\'"'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\\'LOITER_UNLIMITED\\')">Loiter Yap</div>'
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#a5d6a7;"'
-      + ' onmouseover="this.style.background=\'#1a2a1a\'" onmouseout="this.style.background=\'\'"'
-      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'TAKEOFF\')">Takeoff Yap</div>'
+      + ' onmouseover="this.style.background=\\'#1a2a1a\\'" onmouseout="this.style.background=\\'\\'"'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\\'TAKEOFF\\')">Takeoff Yap</div>'
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#ffcc80;"'
-      + ' onmouseover="this.style.background=\'#2a2a1a\'" onmouseout="this.style.background=\'\'"'
-      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'LAND\')">Land Yap</div>'
+      + ' onmouseover="this.style.background=\\'#2a2a1a\\'" onmouseout="this.style.background=\\'\\'"'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\\'LAND\\')">Land Yap</div>'
       + '<div class="wp-ctx-item" style="cursor:pointer;padding:4px 12px;color:#90caf9;"'
-      + ' onmouseover="this.style.background=\'#1a1a2a\'" onmouseout="this.style.background=\'\'"'
-      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\'DO_LAND_START\')">İniş Başlangıcı Yap</div>'
+      + ' onmouseover="this.style.background=\\'#1a1a2a\\'" onmouseout="this.style.background=\\'\\'"'
+      + ' onclick="_wpCtxKapat();wpKomutDegistir(' + idx + ',\\'DO_LAND_START\\')">İniş Başlangıcı Yap</div>'
       + '</div>';
     _wpCtxPopup = L.popup({closeButton: false, offset: [0, -4], className: 'wp-ctx-popup'})
       .setLatLng(ev.latlng)
@@ -726,7 +737,7 @@ function wpListeYukle(wpJsonStr) {
       [Math.max.apply(null, lats), Math.max.apply(null, lons)]
     ], {padding: [50, 50]});
   }
-  durumGoster(liste.length + ' waypoint drone\'dan yüklendi');
+  durumGoster(liste.length + ' waypoint drone\\'dan yüklendi');
 }
 
 // ── Geofence Polygon Editörü ────────────────────────────────────────────────
@@ -760,7 +771,7 @@ function fenceBitir() {
   // Kapat (ilk noktayı sona ekle)
   _fencePolygonGuncelle();
   window.location.href = 'gcs://fence-cizildi?data=' + encodeURIComponent(JSON.stringify(fenceNoktalar));
-  durumGoster('🔷 Fence polygon gönderildi (' + fenceNoktalar.length + ' köşe) — Fence Yükle ile drone\'a gönderin');
+  durumGoster('🔷 Fence polygon gönderildi (' + fenceNoktalar.length + ' köşe) — Fence Yükle ile drone\\'a gönderin');
 }
 function fenceTemizle() {
   fenceMarkerlar.forEach(function(m) { map.removeLayer(m); });
@@ -834,7 +845,7 @@ function gridModAc() {
   map.getContainer().style.cursor = 'crosshair';
   document.getElementById('gridBtn').style.borderColor = '#00bcd4';
   document.getElementById('gridBtn').style.background  = '#002a30';
-  durumGoster('📐 Grid modu: Sol tıkla-sürükle alanı çiz, bırakınca grid WP\'leri oluşturulur');
+  durumGoster('📐 Grid modu: Sol tıkla-sürükle alanı çiz, bırakınca grid WP\\'leri oluşturulur');
 }
 function gridModKapat() {
   gridModAktif = false;
@@ -880,6 +891,8 @@ MINI_HARITA_HTML = """<!DOCTYPE html>
 <meta charset="utf-8"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="preconnect" href="https://fonts.gstatic.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing:border-box; margin:0; padding:0; }
   html, body { width:100%; height:100%; overflow:hidden; background:#0d1b2a; }
@@ -1014,6 +1027,16 @@ from workers import (
 class AnaPencere(QMainWindow):
     _BADGE = "border-radius:3px; padding:2px 8px; font-size:10px;"
 
+    @staticmethod
+    def _rozet_html(etiket: str, deger: str, renk: str = "#bdd8f2") -> str:
+        """Tasarımdaki 'küçük etiket üstte / kalın değer altta' rozet biçimi."""
+        return (
+            f'<div style="line-height:1.2">'
+            f'<span style="font-size:9px;letter-spacing:0.1em;color:#7e9cb8;">{etiket}</span><br>'
+            f'<b style="font-size:13px;letter-spacing:0.04em;color:{renk};">{deger}</b>'
+            f'</div>'
+        )
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Doğuş ÜNİ – Türkçe Yer İstasyonu v0.2")
@@ -1031,10 +1054,24 @@ class AnaPencere(QMainWindow):
         self._sinyalleri_bagla()
         self._ui_olustur()
 
-        # Heartbeat izleme timer'ı (2 sn'de bir)
+        # Heartbeat izleme timer'ı (2 sn'de bir) — worker (MAVLink) thread'inin
+        # canlılığını izler.
         self._hb_timer = QTimer()
         self._hb_timer.setInterval(2000)
         self._hb_timer.timeout.connect(self._heartbeat_kontrol)
+
+        # UI thread nabzı — ayrı, Qt event loop'undan bağımsız bir watchdog
+        # thread'i bu sayacın ilerleyip ilerlemediğini kontrol eder. Worker
+        # heartbeat'inden (_hb_timer/_heartbeat_kontrol, MAVLink thread'ini
+        # izler) BİLİNÇLİ olarak ayrı: UI thread donarsa Qt sinyalleri de
+        # tetiklenmeyebileceğinden, gözlemci Qt'ye bağımlı olmayan plain bir
+        # thread olmalı.
+        self._ui_nabiz = 0
+        self._ui_nabiz_timer = QTimer()
+        self._ui_nabiz_timer.setInterval(500)
+        self._ui_nabiz_timer.timeout.connect(self._ui_nabiz_artir)
+        self._ui_nabiz_timer.start()
+        self._ui_watchdog_baslat()
 
         # Harita JS kuyruğu — tüm runJavaScript çağrıları buradan geçer,
         # asla sinyal/event handler içinden doğrudan çağrılmaz (re-entrancy crash önlemi)
@@ -1043,22 +1080,18 @@ class AnaPencere(QMainWindow):
         self._js_kuyruk: list = []          # bekleyen JS parçacıkları
         self._js_timer = QTimer()
         self._js_timer.setInterval(200)     # 5 Hz — harita akıcı, renderer daha rahat
+        # HUD etiketleri (VFR vb.) için rate-limit kuyruğu — sık gelen
+        # MAVLink mesajlarında (örn. VFR_HUD 10Hz) her seferinde setText
+        # yerine son değer burada tutulur, aynı 5Hz timer'da tek seferde
+        # boyanır (drop-oldest: aradaki eski örnekler otomatik atlanır).
+        self._hud_kuyruk: dict = {}
+        self._js_timer.timeout.connect(self._hud_flush)
         # Önce GPS buffer'ını kuyruğa ekle, sonra kuyruğu tek çağrıyla flush et
         self._js_timer.timeout.connect(self._harita_js_guncelle)
         self._js_timer.timeout.connect(self._js_temizle)
         self._js_timer.start()
         # Eski isim → yeni isim takma adı (eski referanslar bozulmasın)
         self._harita_js_timer = self._js_timer
-
-        # Mini-harita (uçuş sekmesi) JS kuyruğu
-        self._mini_js_kuyruk: list = []
-        self._mini_harita_hazir = False
-        self._mini_harita_tab_hazir = False
-        self._mini_harita_bekleyen_lat: "float | None" = None
-        self._mini_harita_bekleyen_lon: "float | None" = None
-        # Mini-harita timer bağlantıları (aynı _js_timer'a ek)
-        self._js_timer.timeout.connect(self._mini_harita_js_guncelle)
-        self._js_timer.timeout.connect(self._mini_js_temizle)
 
         self._guncel_irtifa = 0.0
         self._guncel_lat = 0.0
@@ -1264,36 +1297,144 @@ class AnaPencere(QMainWindow):
         self._uyari_bant.hide()
         ana.addWidget(self._uyari_bant)
 
-        # Sekmeler
-        self._sekmeler = QTabWidget()
-        self._sekmeler.addTab(self._ana_sekme(), "Uçuş")
+        # ── Kalıcı acil şerit — 1B tasarımı: HER ekranda görünür, sekmeye
+        # gömülü değil (bkz. READMEe.md). _kontrol_serit() acil/mod/diğer
+        # butonlarını içeriyor, davranışı değişmedi — sadece yeri değişti.
+        ana.addWidget(self._kontrol_serit())
+
+        # ── Gövde: sol dikey ray (96px) + sağ içerik stack'i ──────────────────
+        govde = QHBoxLayout()
+        govde.setSpacing(0)
+        govde.setContentsMargins(0, 0, 0, 0)
+
+        self._icerik_stack = QStackedWidget()
+
+        UCUS_IDX, PARAM_IDX, PREARM_IDX, LOG_IDX = 0, 1, 2, 3
+        self._param_tab_index = PARAM_IDX
+        self._harita_tab_index = UCUS_IDX   # harita artık Uçuş ekranının parçası
+
+        self._icerik_stack.addWidget(self._ana_sekme())          # 0: UÇUŞ
+
         self._param_tab_hazir = False
         self._param_stack = QStackedWidget()
         _pk = QLabel("Parametreler yükleniyor…")
         _pk.setAlignment(Qt.AlignCenter)
-        self._param_stack.addWidget(_pk)          # index 0 = placeholder
-        self._param_tab_index = self._sekmeler.addTab(self._param_stack, "Parametreler")
-        if HARITA_MEVCUT:
-            # QWebEngineView pencere gösterilmeden (show()) oluşturulursa
-            # Chromium renderer geçerli HWND bulamaz ve çöker.
-            # QStackedWidget placeholder koyuyoruz; showEvent'te WebEngine başlatılır.
-            self._harita_tab_hazir = False
-            self._harita_stack = QStackedWidget()
-            _yk = QLabel("Harita yükleniyor…")
-            _yk.setAlignment(Qt.AlignCenter)
-            self._harita_stack.addWidget(_yk)          # index 0 = placeholder
-            self._harita_tab_index = self._sekmeler.addTab(self._harita_stack, "Harita")
-        else:
-            eksik = QLabel("Harita için: pip install PyQtWebEngine")
-            eksik.setAlignment(Qt.AlignCenter)
-            self._harita_tab_hazir = True
-            self._harita_tab_index = self._sekmeler.addTab(eksik, "Harita")
-        self._sekmeler.addTab(self._log_sekme(), "📋 Log İndir")
-        self._sekmeler.currentChanged.connect(self._sekme_degisti)
-        ana.addWidget(self._sekmeler)
+        self._param_stack.addWidget(_pk)                          # index 0 = placeholder
+        self._icerik_stack.addWidget(self._param_stack)           # 1: PARAM
+
+        self._icerik_stack.addWidget(self._prearm_sekme())        # 2: PRE-ARM
+        self._icerik_stack.addWidget(self._log_sekme())           # 3: LOG
+
+        govde.addWidget(self._nav_ray_olustur(), 0)
+        govde.addWidget(self._icerik_stack, 1)
+        ana.addLayout(govde)
 
         self._durum_bar = QStatusBar()
         self.setStatusBar(self._durum_bar)
+
+    # ── Dikey ray (1B navigasyonu) ─────────────────────────────────────────────
+
+    @staticmethod
+    def _rail_ikon_ciz(sekil: str, renk: str) -> QIcon:
+        """
+        Rail öğeleri için basit, vektörel çizilmiş ikon (gerçek SVG/Lucide seti
+        yerine QPainter ile 20x20 px çizim — spesifikasyondaki sade geometrik
+        işaretlerle aynı ruhta: çember/kare/çizgi/yarım çember).
+        """
+        pix = QPixmap(20, 20)
+        pix.fill(Qt.transparent)
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        kalem = QPen(QColor(renk))
+        kalem.setWidthF(1.6)
+        p.setPen(kalem)
+        p.setBrush(Qt.NoBrush)
+
+        if sekil == "cember":       # UÇUŞ
+            p.drawEllipse(3, 3, 14, 14)
+        elif sekil == "kare":       # PARAM
+            p.drawRect(4, 4, 12, 12)
+        elif sekil == "cizgiler":   # PRE-ARM
+            p.drawLine(4, 7, 16, 7)
+            p.drawLine(4, 13, 16, 13)
+        elif sekil == "yarim":      # LOG
+            p.setBrush(QBrush(QColor(renk)))
+            p.drawPie(3, 3, 14, 14, 0, 180 * 16)
+            p.setBrush(Qt.NoBrush)
+            p.drawEllipse(3, 3, 14, 14)
+        elif sekil == "acik_cember":  # RAPOR
+            p.drawArc(3, 3, 14, 14, 30 * 16, 300 * 16)
+
+        p.end()
+        return QIcon(pix)
+
+    def _nav_ray_olustur(self) -> QWidget:
+        """
+        96px genişlikte dikey ikon rayı — eski yatay QTabWidget'ın yerini alır.
+        RAPOR öğesi bir sayfa değil, doğrudan _rapor_tikla() eylemini tetikler
+        (uçuş raporu hâlâ tarayıcıda HTML olarak açılıyor — bu turun kapsamı
+        dışında, bkz. plan).
+        """
+        ray = QWidget()
+        ray.setFixedWidth(96)
+        ray.setStyleSheet(f"background:{KOKPIT_ZEMIN}; border-right:1px solid {KOKPIT_KENAR};")
+        lay = QVBoxLayout(ray)
+        lay.setContentsMargins(0, 10, 0, 10)
+        lay.setSpacing(2)
+
+        self._ray_dugmeleri: dict[int, QToolButton] = {}
+        oge_stili_pasif = (
+            "QToolButton { background:transparent; color:#9ebbd8; border:none; "
+            "border-left:2px solid transparent; font-family:'Barlow Condensed',sans-serif; "
+            "font-weight:600; font-size:10px; letter-spacing:0.1em; padding:12px 0; }"
+            "QToolButton:hover { background:rgba(148,188,227,0.06); }"
+        )
+        oge_stili_aktif = (
+            "QToolButton { background:rgba(148,188,227,0.1); color:#e7e7ea; "
+            "border:none; border-left:2px solid #94bce3; "
+            "font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:10px; "
+            "letter-spacing:0.1em; padding:12px 0; }"
+        )
+        self._ray_stil_pasif = oge_stili_pasif
+        self._ray_stil_aktif = oge_stili_aktif
+
+        def _rail_dugmesi(etiket: str, sekil: str) -> QToolButton:
+            b = QToolButton()
+            b.setText(etiket)
+            b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            b.setIconSize(QSize(18, 18))
+            b.setIcon(self._rail_ikon_ciz(sekil, "#9ebbd8"))
+            b.setMinimumHeight(74)
+            b.setAutoRaise(True)
+            return b
+
+        _OGELER = ((0, "UÇUŞ", "cember"), (1, "PARAM", "kare"),
+                   (2, "PRE-ARM", "cizgiler"), (3, "LOG", "yarim"))
+        for idx, etiket, sekil in _OGELER:
+            b = _rail_dugmesi(etiket, sekil)
+            if idx == 0:
+                b.setIcon(self._rail_ikon_ciz(sekil, "#e7e7ea"))
+            b.setStyleSheet(oge_stili_aktif if idx == 0 else oge_stili_pasif)
+            b.clicked.connect(lambda _, i=idx: self._rail_sayfa_degistir(i))
+            lay.addWidget(b)
+            self._ray_dugmeleri[idx] = b
+
+        lay.addStretch()
+
+        rapor_btn = _rail_dugmesi("RAPOR", "acik_cember")
+        rapor_btn.setStyleSheet(oge_stili_pasif)
+        rapor_btn.clicked.connect(self._rapor_tikla)
+        lay.addWidget(rapor_btn)
+
+        return ray
+
+    def _rail_sayfa_degistir(self, index: int):
+        """Ray'e tıklanınca çağrılır — eski _sekme_degisti'nin (QTabWidget
+        currentChanged) yerini alır, aynı lazy-load mantığını korur."""
+        for i, btn in self._ray_dugmeleri.items():
+            btn.setStyleSheet(self._ray_stil_aktif if i == index else self._ray_stil_pasif)
+        self._icerik_stack.setCurrentIndex(index)
+        self._sekme_degisti(index)
 
     # ── Bağlantı çubuğu ──────────────────────────────────────────────────────
 
@@ -1302,14 +1443,14 @@ class AnaPencere(QMainWindow):
             "border-radius:3px; padding:2px 8px; font-size:10px;"
         )
         bar = QWidget()
-        bar.setFixedHeight(46)
+        bar.setFixedHeight(58)
         bar.setStyleSheet(
             "QWidget#baglantiBar { background:#0a1520; border-bottom:1px solid #1a3a5a; }"
             "QLabel { background:transparent; }"
         )
         bar.setObjectName("baglantiBar")
         duz = QHBoxLayout(bar)
-        duz.setContentsMargins(10, 6, 10, 6)
+        duz.setContentsMargins(10, 8, 10, 8)
         duz.setSpacing(7)
 
         # ── Status LED ────────────────────────────────────────────────────────
@@ -1326,10 +1467,10 @@ class AnaPencere(QMainWindow):
         self._baglanti_giris.setFixedHeight(30)
         self._baglanti_giris.setToolTip("tcp:host:port | udp:host:port | /dev/ttyUSB0,115200")
         self._baglanti_giris.setStyleSheet(
-            "QLineEdit { background:#0d1b2a; color:#7eb8e0; "
-            "border:1px solid #1a4060; border-radius:4px; "
-            "padding:2px 8px; font-family:'Courier New'; font-size:12px; }"
-            "QLineEdit:focus { border-color:#2a6090; }"
+            f"QLineEdit {{ background:{KOKPIT_ZEMIN}; color:{KOKPIT_VURGU2}; "
+            f"border:1px solid {KOKPIT_KENAR}; border-radius:4px; "
+            "padding:2px 8px; font-family:'Courier New'; font-size:12px; }}"
+            f"QLineEdit:focus {{ border-color:{KOKPIT_VURGU}; }}"
         )
         duz.addWidget(self._baglanti_giris)
 
@@ -1337,11 +1478,11 @@ class AnaPencere(QMainWindow):
         self._baglan_btn = QPushButton("BAĞLAN")
         self._baglan_btn.setFixedSize(100, 30)
         self._baglan_btn.setStyleSheet(
-            "QPushButton { background:#1b5e20; color:#a5d6a7; "
-            "border:1px solid #2e7d32; border-radius:4px; "
-            "font-weight:bold; font-size:11px; }"
-            "QPushButton:hover { background:#2e7d32; }"
-            "QPushButton:pressed { background:#145214; }"
+            f"QPushButton {{ background:{KOKPIT_VURGU}; color:#12202c; "
+            "border:none; border-radius:4px; "
+            "font-weight:bold; font-size:11px; }}"
+            f"QPushButton:hover {{ background:{KOKPIT_VURGU2}; }}"
+            "QPushButton:pressed { background:#7ea6c9; }"
         )
         self._baglan_btn.clicked.connect(self._baglan_tikla)
         duz.addWidget(self._baglan_btn)
@@ -1361,12 +1502,12 @@ class AnaPencere(QMainWindow):
         duz.addWidget(self._kes_btn)
 
         # ── Rapor ─────────────────────────────────────────────────────────────
-        self._rapor_btn = QPushButton("Rapor")
-        self._rapor_btn.setFixedSize(52, 30)
+        self._rapor_btn = QPushButton("RAPOR")
+        self._rapor_btn.setFixedSize(74, 30)
         self._rapor_btn.setToolTip("Son uçuş için HTML rapor oluştur ve tarayıcıda aç")
         self._rapor_btn.setStyleSheet(
             "QPushButton { background:#1a2a3a; color:#7eb8e0; border:1px solid #2a4060; "
-            "border-radius:4px; font-size:11px; }"
+            "border-radius:4px; font-size:11px; padding:0 6px; }"
             "QPushButton:hover { background:#2a3a5a; }"
         )
         self._rapor_btn.clicked.connect(self._rapor_tikla)
@@ -1380,44 +1521,81 @@ class AnaPencere(QMainWindow):
         duz.addStretch()
 
         # ── MOD rozeti ────────────────────────────────────────────────────────
-        self._mod_lbl = QLabel("MOD: —")
-        self._mod_lbl.setFont(QFont("Arial", 10, QFont.Bold))
+        self._mod_lbl = QLabel(self._rozet_html("MOD", "—"))
         self._mod_lbl.setStyleSheet(
-            f"color:#7eb8e0; background:#0d1b2a; border:1px solid #1a4060; {_BADGE}"
+            f"background:transparent; border:1px solid {KOKPIT_KENAR}; padding:3px 14px;"
         )
+        self._mod_lbl.setFixedHeight(42)
+        self._mod_lbl.setAlignment(Qt.AlignCenter)
         duz.addWidget(self._mod_lbl)
 
         # ── ARM rozeti ────────────────────────────────────────────────────────
-        self._arm_lbl = QLabel("DISARM")
-        self._arm_lbl.setFont(QFont("Arial", 10, QFont.Bold))
+        self._arm_lbl = QLabel(self._rozet_html("DURUM", "DISARM", "#7e9cb8"))
         self._arm_lbl.setStyleSheet(
-            f"color:#666; background:#111; border:1px solid #2a2a2a; {_BADGE}"
+            f"background:transparent; border:1px solid {KOKPIT_KENAR}; padding:3px 14px;"
         )
+        self._arm_lbl.setFixedHeight(42)
+        self._arm_lbl.setAlignment(Qt.AlignCenter)
         duz.addWidget(self._arm_lbl)
 
         # ── EKF rozeti ────────────────────────────────────────────────────────
-        self._ekf_lbl = QLabel("EKF: —")
+        self._ekf_lbl = QLabel(self._rozet_html("EKF", "—", "#7e9cb8"))
         self._ekf_lbl.setStyleSheet(
-            f"color:#666; background:#111; border:1px solid #2a2a2a; {_BADGE}"
+            f"background:transparent; border:1px solid {KOKPIT_KENAR}; padding:3px 14px;"
         )
+        self._ekf_lbl.setFixedHeight(42)
+        self._ekf_lbl.setAlignment(Qt.AlignCenter)
         duz.addWidget(self._ekf_lbl)
 
         # ── RC sinyal rozeti ──────────────────────────────────────────────────
-        self._rc_lbl = QLabel("RC: —")
+        self._rc_lbl = QLabel(self._rozet_html("RC", "—", "#7e9cb8"))
         self._rc_lbl.setStyleSheet(
-            f"color:#666; background:#111; border:1px solid #2a2a2a; {_BADGE}"
+            f"background:transparent; border:1px solid {KOKPIT_KENAR}; padding:3px 14px;"
         )
+        self._rc_lbl.setFixedHeight(42)
+        self._rc_lbl.setAlignment(Qt.AlignCenter)
         duz.addWidget(self._rc_lbl)
 
+        # ── GPS rozeti (1B tasarımı — MOD/DURUM/EKF/RC/GPS/SÜRE) ──────────────
+        self._gps_badge_lbl = QLabel(self._rozet_html("GPS", "—", "#7e9cb8"))
+        self._gps_badge_lbl.setStyleSheet(
+            f"background:transparent; border:1px solid {KOKPIT_KENAR}; padding:3px 14px;"
+        )
+        self._gps_badge_lbl.setFixedHeight(42)
+        self._gps_badge_lbl.setAlignment(Qt.AlignCenter)
+        duz.addWidget(self._gps_badge_lbl)
+
+        # ── SÜRE rozeti — bağlantı kurulduğundan bu yana geçen süre ───────────
+        self._sure_lbl = QLabel(self._rozet_html("SÜRE", "—", "#7e9cb8"))
+        self._sure_lbl.setStyleSheet(
+            f"background:transparent; border:1px solid {KOKPIT_KENAR}; padding:3px 14px;"
+        )
+        self._sure_lbl.setFixedHeight(42)
+        self._sure_lbl.setAlignment(Qt.AlignCenter)
+        duz.addWidget(self._sure_lbl)
+        self._baglanti_zamani: "float | None" = None
+        self._sure_timer = QTimer()
+        self._sure_timer.setInterval(1000)
+        self._sure_timer.timeout.connect(self._sure_guncelle)
+
         return bar
+
+    def _sure_guncelle(self):
+        if self._baglanti_zamani is None:
+            return
+        gecen = int(time.time() - self._baglanti_zamani)
+        saat, kalan = divmod(gecen, 3600)
+        dakika, saniye = divmod(kalan, 60)
+        metin = f"{saat:02d}:{dakika:02d}:{saniye:02d}"
+        self._sure_lbl.setText(self._rozet_html("SÜRE", metin, "#bdd8f2"))
 
     # ── Uçuş sekmesi ─────────────────────────────────────────────────────────
 
     def _ana_sekme(self) -> QWidget:
-        """Mission Planner tarzı 2-kolonlu uçuş sekmesi.
-
-        Sol kolon  (%55): HUD (esnek yükseklik) + kompakt durum çubuğu + alt sekmeler
-        Sağ kolon  (%45): Mini-harita — TAM yükseklikte, tüm zone'larla rekabet etmez
+        """1B düzeni — Uçuş ekranı: sol enstrüman kolonu (%55) + sağ birleşik
+        harita/görev paneli (%45). Eskiden sağda ayrı bir "mini-harita" vardı
+        ve tam harita+görev tablosu ayrı bir sekmedeydi; 1B'de tek harita var,
+        doğrudan burada gösteriliyor (bkz. READMEe.md, 1B bölümü).
         """
         w = QWidget()
         main_row = QHBoxLayout(w)
@@ -1425,10 +1603,12 @@ class AnaPencere(QMainWindow):
         main_row.setContentsMargins(4, 4, 4, 4)
 
         # ── Sol kolon ─────────────────────────────────────────────────────────
+        # Kart sayısı arttıkça (yapay ufuk + 6 kart + alt sekmeler) dar
+        # ekranlarda taşma riski var — kaydırılabilir alana sarıldı.
         sol_w = QWidget()
         sol = QVBoxLayout(sol_w)
-        sol.setSpacing(3)
-        sol.setContentsMargins(0, 0, 0, 0)
+        sol.setSpacing(6)
+        sol.setContentsMargins(0, 0, 6, 0)
 
         # HUD — ekranın çoğunu kullanır, stretch=1 ile esnek büyür
         hud_grp = QGroupBox("Yapay Ufuk")
@@ -1437,65 +1617,124 @@ class AnaPencere(QMainWindow):
         hud_lay.setContentsMargins(4, 4, 4, 4)
         self._yapay_ufuk = YapayUfukWidget()
         hud_lay.addWidget(self._yapay_ufuk)
-        sol.addWidget(hud_grp, 1)
+        sol.addWidget(hud_grp)
 
-        # Kompakt durum çubuğu — tek satır, max 32px
-        sol.addWidget(self._durum_serit_kompakt())
+        # 1B kart dizisi: 2x2 tile + Batarya + Rüzgar&Arazi + Sistem Mesajları
+        sol.addWidget(self._tile_2x2_kart())
+        sol.addWidget(self._batarya_karti())
+        sol.addWidget(self._ruzgar_arazi_karti())
+        sol.addWidget(self._mesaj_logu_paneli())
 
-        # Alt sekmeler — Kontrol / Değerler / IMU-ESC / Grafik / Mesaj
+        # IMU/ESC ve Grafik — artık kalıcı kartlar (eskiden alt-sekme içindeydi)
+        sol.addWidget(self._imu_esc_karti())
+        sol.addWidget(self._grafik_karti())
+
+        # Alt sekmeler — Değerler (Roll/Pitch/Yaw/Bat) / Göstergeler
         sol.addWidget(self._alt_sekmeler())
 
-        main_row.addWidget(sol_w, 55)
+        kaydirma = QScrollArea()
+        kaydirma.setWidgetResizable(True)
+        kaydirma.setFrameShape(QScrollArea.NoFrame)
+        kaydirma.setStyleSheet(f"QScrollArea {{ background:transparent; border:none; }}")
+        kaydirma.setWidget(sol_w)
+        main_row.addWidget(kaydirma, 55)
 
-        # ── Sağ kolon: Mini-harita tam yükseklikte ────────────────────────────
-        self._mini_harita_stack = QStackedWidget()
-        _ph = QLabel("Mini harita yükleniyor…")
-        _ph.setAlignment(Qt.AlignCenter)
-        _ph.setStyleSheet("color:#7eb8e0; background:#0d1b2a; font-size:12px;")
-        self._mini_harita_stack.addWidget(_ph)      # index 0 = placeholder
-        main_row.addWidget(self._mini_harita_stack, 45)
-
-        # Mini-harita lazy-load — pencere gösterildikten 150ms sonra
-        QTimer.singleShot(150, self._mini_harita_yukle)
+        # ── Sağ kolon: birleşik harita + görev tablosu (tam yükseklik) ────────
+        # HWND kısıtı (Chromium, show() öncesi geçerli pencere handle bulamıyor)
+        # nedeniyle gerçek QWebEngineView burada değil, showEvent'ten sonra
+        # _harita_tab_yukle() içinde oluşturulur — placeholder şimdilik konur.
+        if HARITA_MEVCUT:
+            self._harita_tab_hazir = False
+            self._harita_stack = QStackedWidget()
+            _yk = QLabel("Harita yükleniyor…")
+            _yk.setAlignment(Qt.AlignCenter)
+            _yk.setStyleSheet(f"color:{KOKPIT_VURGU2}; background:{KOKPIT_ZEMIN}; font-size:12px;")
+            self._harita_stack.addWidget(_yk)      # index 0 = placeholder
+            main_row.addWidget(self._harita_stack, 45)
+        else:
+            self._harita_tab_hazir = True
+            eksik = QLabel("Harita için: pip install PyQtWebEngine")
+            eksik.setAlignment(Qt.AlignCenter)
+            main_row.addWidget(eksik, 45)
 
         return w
 
-    def _durum_serit_kompakt(self) -> QWidget:
-        """Tek satır durum çubuğu: Batarya | GPS | Rüzgar — max 32px.
+    def _kart(self, baslik: str) -> tuple:
+        """1B kart deseni: kokpit bordürlü, başlıklı dikey kutu. (frame, içerik_layout) döner."""
+        cerceve = QWidget()
+        cerceve.setStyleSheet(
+            f"background:rgba(17,28,38,0.6); border:1px solid {KOKPIT_KENAR};"
+        )
+        dis = QVBoxLayout(cerceve)
+        dis.setContentsMargins(11, 8, 11, 10)
+        dis.setSpacing(6)
+        if baslik:
+            b = QLabel(baslik)
+            b.setStyleSheet(
+                "color:#9ebbd8; font-size:10px; font-weight:700; "
+                "font-family:'Barlow Condensed',sans-serif; letter-spacing:0.2em; "
+                "background:transparent; border:none;"
+            )
+            dis.addWidget(b)
+        return cerceve, dis
 
-        Tüm self._xxx attr isimleri korunur — güncelleme metodları bozulmaz.
-        """
+    def _tile_2x2_kart(self) -> QWidget:
+        """1B: İrtifa/Hız/Dikey/Eve — 2×2 ızgara (spec: tabular-nums, 40px değer)."""
         w = QWidget()
-        w.setMaximumHeight(32)
-        w.setMinimumHeight(28)
-        w.setStyleSheet("background:#0d1b2a; border-top:1px solid #1a2a3a;")
-        lay = QHBoxLayout(w)
-        lay.setContentsMargins(8, 2, 8, 2)
-        lay.setSpacing(8)
+        grid = QGridLayout(w)
+        grid.setSpacing(8)
+        grid.setContentsMargins(0, 0, 0, 0)
 
-        # Batarya
+        _TILES = [
+            ("İRTİFA (m)",  "#bdd8f2", "_irtifa_lbl"),
+            ("HIZ (m/s)",   "#e7e7ea", "_hiz_lbl"),
+            ("DİKEY (m/s)", "#e7e7ea", "_dikey_lbl"),
+            ("EVE (m)",     "#e7e7ea", "_uzaklik_lbl"),
+        ]
+        for i, (ad, renk, attr) in enumerate(_TILES):
+            tile = QWidget()
+            tile.setStyleSheet(
+                f"background:rgba(17,28,38,0.6); border:1px solid {KOKPIT_KENAR};"
+            )
+            tlay = QVBoxLayout(tile)
+            tlay.setContentsMargins(8, 6, 8, 6)
+            tlay.setSpacing(0)
+            ad_lbl = QLabel(ad)
+            ad_lbl.setStyleSheet(
+                "color:#627d98; font-size:10px; font-weight:600; letter-spacing:0.12em; "
+                "background:transparent; border:none; "
+                "font-family:'Barlow Condensed',sans-serif;"
+            )
+            val_lbl = QLabel("—")
+            val_lbl.setStyleSheet(
+                f"color:{renk}; font-size:28px; font-weight:700; background:transparent; "
+                "border:none; font-family:'Barlow Condensed',sans-serif;"
+            )
+            tlay.addWidget(ad_lbl)
+            tlay.addWidget(val_lbl)
+            grid.addWidget(tile, i // 2, i % 2)
+            setattr(self, attr, val_lbl)
+        return w
+
+    def _batarya_karti(self) -> QWidget:
+        """1B: Batarya kartı — bar + volt/amper/yüzde detayı."""
+        cerceve, dis = self._kart("BATARYA")
         self._batarya_bar = BataryaBar()
-        self._batarya_bar.setFixedSize(34, 14)
-        lay.addWidget(self._batarya_bar)
+        self._batarya_bar.setFixedHeight(16)
+        dis.addWidget(self._batarya_bar)
         self._batarya_detay = QLabel("—V  —A  —%")
-        self._batarya_detay.setStyleSheet("color:#ffb74d; font-size:11px;")
-        lay.addWidget(self._batarya_detay)
+        self._batarya_detay.setStyleSheet(
+            "color:#e7e7ea; font-size:15px; font-weight:600; background:transparent; border:none; "
+            "font-family:'Barlow Condensed',sans-serif;"
+        )
+        dis.addWidget(self._batarya_detay)
+        return cerceve
 
-        _s1 = QLabel("|"); _s1.setStyleSheet("color:#2a4060; font-size:11px;")
-        lay.addWidget(_s1)
-
-        # GPS
-        self._gps_fix_lbl   = QLabel("Fix: —")
-        self._gps_uydu_lbl  = QLabel("Uydu: —")
-        self._gps_konum_lbl = QLabel("—, —")
-        for _l in (self._gps_fix_lbl, self._gps_uydu_lbl, self._gps_konum_lbl):
-            _l.setStyleSheet("color:#7eb8e0; font-size:11px;")
-            lay.addWidget(_l)
-
-        _s2 = QLabel("|"); _s2.setStyleSheet("color:#2a4060; font-size:11px;")
-        lay.addWidget(_s2)
-
-        # Rüzgar
+    def _ruzgar_arazi_karti(self) -> QWidget:
+        """1B: Rüzgar & Arazi kartı — rüzgar hız/yön/seviye + GPS özeti (tucked)."""
+        cerceve, dis = self._kart("RÜZGAR &amp; ARAZİ")
+        satir = QHBoxLayout()
+        satir.setSpacing(10)
         self._ruzgar           = None
         self._ruz_seviye_lbl   = QLabel("—")
         self._ruz_hiz_lbl      = QLabel("— km/h")
@@ -1503,14 +1742,35 @@ class AnaPencere(QMainWindow):
         self._ruzgar_zemin_lbl = QLabel("Zemin: —")
         for _l in (self._ruz_seviye_lbl, self._ruz_hiz_lbl,
                    self._ruz_yon_lbl, self._ruzgar_zemin_lbl):
-            _l.setStyleSheet("color:#80cbc4; font-size:11px;")
-            lay.addWidget(_l)
+            _l.setStyleSheet(
+                "color:#9ebbd8; font-size:12px; background:transparent; border:none;"
+            )
+            satir.addWidget(_l)
+        satir.addStretch()
+        dis.addLayout(satir)
 
-        lay.addStretch()
-        return w
+        # GPS özeti — GPS'in ana gösterimi artık üst bar rozeti; burada sadece
+        # koordinat/uydu detayı tutuluyor (attr'lar korunur, _gps_guncelle bozulmaz).
+        gps_satir = QHBoxLayout()
+        gps_satir.setSpacing(10)
+        self._gps_fix_lbl   = QLabel("Fix: —")
+        self._gps_uydu_lbl  = QLabel("Uydu: —")
+        self._gps_konum_lbl = QLabel("—, —")
+        for _l in (self._gps_fix_lbl, self._gps_uydu_lbl, self._gps_konum_lbl):
+            _l.setStyleSheet(
+                "color:#627d98; font-size:11px; background:transparent; border:none;"
+            )
+            gps_satir.addWidget(_l)
+        gps_satir.addStretch()
+        dis.addLayout(gps_satir)
+        return cerceve
 
     def _alt_sekmeler(self) -> QTabWidget:
-        """Alt sekmeli panel: Kontrol / Değerler / IMU-ESC / Grafik / Mesaj."""
+        """Alt sekmeli panel: Değerler / Göstergeler.
+
+        IMU/ESC ve Grafik artık ayrı kalıcı kartlar (bkz. _ana_sekme,
+        _imu_esc_karti, _grafik_karti) — sekme içine gömülü değiller.
+        """
         tabs = QTabWidget()
         tabs.setMinimumHeight(130)
         tabs.setMaximumHeight(215)
@@ -1523,14 +1783,25 @@ class AnaPencere(QMainWindow):
             "  border-bottom:2px solid #58a6ff; }"
             "QTabBar::tab:hover { background:#1a2a3a; }"
         )
-        tabs.addTab(self._kontrol_serit(),      "Kontrol")
         tabs.addTab(self._tile_serit(),          "Değerler")
         tabs.addTab(self._gauge_sekme(),         "Göstergeler")
-        tabs.addTab(self._imu_esc_sekme(),       "IMU/ESC")
-        tabs.addTab(self._ucus_grafik_widget(),  "Grafik")
-        tabs.addTab(self._mesaj_logu_paneli(),   "Mesaj")
-        tabs.addTab(self._prearm_sekme(),        "✅ Pre-Arm")
         return tabs
+
+    def _imu_esc_karti(self) -> QWidget:
+        """IMU sıcaklıkları + ESC/Motor panellerini yan yana kart olarak gösterir."""
+        cerceve, dis = self._kart("IMU / ESC")
+        yatay = QHBoxLayout()
+        yatay.setSpacing(8)
+        yatay.addWidget(self._imu_paneli())
+        yatay.addWidget(self._esc_paneli())
+        dis.addLayout(yatay)
+        return cerceve
+
+    def _grafik_karti(self) -> QWidget:
+        """Uçuş grafiğini (pyqtgraph) kart görünümüne sarar."""
+        cerceve, dis = self._kart("UÇUŞ GRAFİĞİ")
+        dis.addWidget(self._ucus_grafik_widget())
+        return cerceve
 
     def _ucus_grafik_widget(self) -> QWidget:
         """pyqtgraph uçuş grafik widget'ini oluşturur ve self attrs'ı ayarlar."""
@@ -1848,9 +2119,10 @@ class AnaPencere(QMainWindow):
         return w
 
     def _kontrol_serit(self) -> QWidget:
-        """Zone 3 — acil + mod + diğer butonlar tek yatay şerit (max 66px)."""
+        """Kalıcı acil şerit — 1B tasarımı: her ekranda görünür (bkz. _ui_olustur)."""
         w = QWidget()
-        w.setMaximumHeight(70)
+        w.setMinimumHeight(78)
+        w.setMaximumHeight(96)
         lay = QHBoxLayout(w)
         lay.setSpacing(4)
         lay.setContentsMargins(2, 2, 2, 2)
@@ -1868,9 +2140,9 @@ class AnaPencere(QMainWindow):
             ("🪂 PARAŞÜT",     self._parasut_tikla,   True),
         ]:
             b = QPushButton(ad)
-            b.setMaximumHeight(32)
+            b.setMaximumHeight(36)
             if kirmizi:
-                b.setStyleSheet(ACİL_STILI)
+                b.setStyleSheet(ACİL_STİLİ_KOKPIT)
             b.clicked.connect(slot)
             acil_lay.addWidget(b)
         lay.addWidget(acil_grp, 4)
@@ -1880,11 +2152,13 @@ class AnaPencere(QMainWindow):
         mod_lay = QHBoxLayout(mod_grp)
         mod_lay.setContentsMargins(4, 4, 4, 4)
         mod_lay.setSpacing(3)
+        self._mod_btn_map = {}
         for (ad, mid) in [("SABİTLEME", 0), ("LOITER", 5), ("FREN", 12), ("OTOMATİK", 3), ("KILAVUZ", 4), ("SMART RTL", 22)]:
             b = QPushButton(ad)
-            b.setMaximumHeight(32)
+            b.setMaximumHeight(36)
             b.clicked.connect(lambda _, m=mid: self._mod_tikla(m))
             mod_lay.addWidget(b)
+            self._mod_btn_map[mid] = b
         lay.addWidget(mod_grp, 4)
 
         # Diğer (Ev + Kalibrasyon + Terrain/ADSB)
@@ -1893,11 +2167,11 @@ class AnaPencere(QMainWindow):
         diger_lay.setContentsMargins(4, 4, 4, 4)
         diger_lay.setSpacing(6)
         ev_btn = QPushButton("Ev Yap")
-        ev_btn.setMaximumHeight(32)
+        ev_btn.setMaximumHeight(36)
         ev_btn.clicked.connect(self._ev_yap_tikla)
         diger_lay.addWidget(ev_btn)
         kal_btn = QPushButton("🔧 Kalibrasyon")
-        kal_btn.setMaximumHeight(32)
+        kal_btn.setMaximumHeight(36)
         kal_btn.setToolTip("Gyro + Manyetometre + İvmeölçer kalibrasyonu (PREFLIGHT_CALIBRATION)")
         kal_btn.clicked.connect(self._kalibrasyon_tikla)
         diger_lay.addWidget(kal_btn)
@@ -1920,11 +2194,8 @@ class AnaPencere(QMainWindow):
         lay.setSpacing(2)
         lay.setContentsMargins(2, 2, 2, 2)
 
+        # İrtifa/Hız/Dikey/Eve artık _tile_2x2_kart()'ta (1B sol kolon kartı).
         _TILES = [
-            ("İrtifa",    "m",   "#4dd0e1", "_irtifa_lbl"),
-            ("Hız",       "m/s", "#a5d6a7", "_hiz_lbl"),
-            ("Dikey Hız", "m/s", "#fff176", "_dikey_lbl"),
-            ("Mesafe",    "m",   "#ce93d8", "_uzaklik_lbl"),
             ("Roll",      "°",   "#80cbc4", "_roll_lbl"),
             ("Pitch",     "°",   "#f48fb1", "_pitch_lbl"),
             ("Yaw",       "°",   "#80deea", "_yaw_lbl"),
@@ -2033,28 +2304,57 @@ class AnaPencere(QMainWindow):
         self._g_gps_alt.setText(f"{uydu} uydu")
 
     def _prearm_sekme(self) -> QWidget:
-        """Uçuş öncesi kontrol listesi — MAVLink verilerine göre otomatik güncellenir."""
-        w = QWidget()
-        ana = QVBoxLayout(w)
-        ana.setSpacing(4)
-        ana.setContentsMargins(6, 6, 6, 6)
+        """Uçuş öncesi kontrol listesi — MAVLink verilerine göre otomatik güncellenir.
 
-        baslik = QLabel("Uçuş Öncesi Kontroller")
-        baslik.setFont(QFont("Arial", 10, QFont.Bold))
-        baslik.setStyleSheet("color: #7ec8e3;")
+        1B/1E: sol kolon (kontrol satırları + ArduPilot mesajları) + sağ 430px
+        kolon (ARM DURUMU — gerçek ARM/DISARM butonu, GÜVENLİK KATMANLARI,
+        KALİBRASYON). Eskiden bu ekran sadece durum GÖSTERİYORDU, ARM etmenin
+        kendisi için bir yol yoktu — artık gerçek MAV_CMD_COMPONENT_ARM_DISARM
+        (400) komutu buradan gönderiliyor.
+        """
+        disari = QHBoxLayout()
+        disari.setSpacing(10)
+        disari.setContentsMargins(6, 6, 6, 6)
+        w = QWidget()
+        w.setLayout(disari)
+
+        sol_w = QWidget()
+        ana = QVBoxLayout(sol_w)
+        ana.setSpacing(4)
+        ana.setContentsMargins(0, 0, 0, 0)
+        disari.addWidget(sol_w, 1)
+
+        baslik = QLabel("UÇUŞ ÖNCESİ KONTROLLER")
+        baslik.setStyleSheet(
+            "color:#e7e7ea; font-size:16px; font-weight:700; "
+            "font-family:'Barlow Condensed',sans-serif; letter-spacing:0.1em;"
+        )
         ana.addWidget(baslik)
 
-        izgara = QGridLayout()
-        izgara.setSpacing(4)
+        izgara = QVBoxLayout()
+        izgara.setSpacing(6)
 
         def _satir(ad: str, satir: int):
+            cerceve = QWidget()
+            cerceve.setObjectName("prearmSatir")
+            cerceve.setStyleSheet(
+                f"QWidget#prearmSatir {{ background:{KOKPIT_PANEL}; "
+                f"border:1px solid {KOKPIT_KENAR}; padding:2px; }}"
+            )
+            clay = QHBoxLayout(cerceve)
+            clay.setContentsMargins(14, 10, 14, 10)
             etiket = QLabel(ad)
-            etiket.setStyleSheet("color: #aab8c2; font-size: 9pt;")
+            etiket.setStyleSheet(
+                "color:#9ebbd8; font-size:12px; font-family:'Barlow Condensed',sans-serif; "
+                "font-weight:600; letter-spacing:0.04em;"
+            )
+            clay.addWidget(etiket)
+            clay.addStretch()
             durum = QLabel("—")
-            durum.setFixedWidth(180)
-            durum.setStyleSheet("color: #888; font-size: 9pt; font-weight: bold;")
-            izgara.addWidget(etiket, satir, 0)
-            izgara.addWidget(durum, satir, 1)
+            durum.setStyleSheet("color:#7e9cb8; font-size:11px; font-weight:700;")
+            clay.addWidget(durum)
+            durum._prearm_cerceve = cerceve   # _prearm_renk kenarlığı da güncelleyebilsin
+            izgara.addWidget(cerceve)
             return durum
 
         self._prearm_gps     = _satir("GPS Fix",          0)
@@ -2067,24 +2367,120 @@ class AnaPencere(QMainWindow):
         ana.addLayout(izgara)
 
         # ArduPilot'tan gelen pre-arm mesajları
-        ara = QLabel("ArduPilot Mesajları:")
-        ara.setStyleSheet("color: #7ec8e3; font-size: 9pt; margin-top: 4px;")
+        ara = QLabel("ARDUPILOT MESAJLARI")
+        ara.setStyleSheet(
+            "color:#9ebbd8; font-size:10px; font-weight:700; margin-top:4px; "
+            "font-family:'Barlow Condensed',sans-serif; letter-spacing:0.16em;"
+        )
         ana.addWidget(ara)
         self._prearm_mesajlar = QTextEdit()
         self._prearm_mesajlar.setReadOnly(True)
-        self._prearm_mesajlar.setMaximumHeight(70)
-        self._prearm_mesajlar.setFont(QFont("Courier New", 8))
+        self._prearm_mesajlar.setMaximumHeight(90)
+        self._prearm_mesajlar.setFont(QFont("Courier New", 9))
         self._prearm_mesajlar.setStyleSheet(
-            "background:#0a1520; color:#e0e0e0; border:1px solid #1a3050;")
+            f"background:{KOKPIT_ZEMIN}; color:#c8d8e8; border:1px solid {KOKPIT_KENAR};"
+        )
         ana.addWidget(self._prearm_mesajlar)
         ana.addStretch()
 
+        # ── Sağ kolon (430px) — ARM DURUMU / GÜVENLİK KATMANLARI / KALİBRASYON ──
+        sag_w = QWidget()
+        sag_w.setFixedWidth(430)
+        sag = QVBoxLayout(sag_w)
+        sag.setSpacing(10)
+        sag.setContentsMargins(0, 0, 0, 0)
+
+        arm_cerceve, arm_lay = self._kart("ARM DURUMU")
+        self._prearm_arm_baslik = QLabel("DISARM")
+        self._prearm_arm_baslik.setAlignment(Qt.AlignCenter)
+        self._prearm_arm_baslik.setStyleSheet(
+            "color:#d9a24a; font-size:40px; font-weight:700; background:transparent; "
+            "border:none; font-family:'Barlow Condensed',sans-serif; letter-spacing:0.04em;"
+        )
+        arm_lay.addWidget(self._prearm_arm_baslik)
+        self._prearm_arm_btn = QPushButton("MOTORLARI ARM ET")
+        self._prearm_arm_btn.setFixedHeight(52)
+        self._prearm_arm_btn.setStyleSheet(
+            BAĞLAN_STİLİ_KOKPIT.replace("font-weight: bold;", "font-weight:700; font-size:13px; "
+            "font-family:'Barlow Condensed',sans-serif; letter-spacing:0.1em;")
+        )
+        self._prearm_arm_btn.clicked.connect(self._arm_disarm_tikla)
+        arm_lay.addWidget(self._prearm_arm_btn)
+        sag.addWidget(arm_cerceve)
+
+        guv_cerceve, guv_lay = self._kart("GÜVENLİK KATMANLARI")
+        for satir in (
+            "K1 — GPS: 3D fix + yeterli uydu sayısı",
+            "K2 — EKF: sensör füzyonu sağlıklı",
+            "K3 — Batarya: güvenli voltaj/yüzde",
+            "K4 — RC: sinyal var, failsafe yok",
+            "K5 — IMU: sıcaklık normal aralıkta",
+        ):
+            l = QLabel(satir)
+            l.setStyleSheet(
+                "color:#9ebbd8; font-size:12px; background:transparent; border:none; padding:2px 0;"
+            )
+            guv_lay.addWidget(l)
+        sag.addWidget(guv_cerceve)
+
+        kal_cerceve, kal_lay = self._kart("KALİBRASYON")
+        kal_row = QHBoxLayout()
+        kal_row.setSpacing(6)
+        for ad, tur in (("GYRO", 1), ("MAG", 2), ("ACCEL", 5)):
+            b = QPushButton(ad)
+            b.setFixedHeight(38)
+            b.clicked.connect(lambda _, t=tur: self._hizli_kalibrasyon(t))
+            kal_row.addWidget(b)
+        kal_lay.addLayout(kal_row)
+        sag.addWidget(kal_cerceve)
+
+        sag.addStretch()
+        disari.addWidget(sag_w)
+
         return w
 
+    def _arm_disarm_tikla(self):
+        """MAV_CMD_COMPONENT_ARM_DISARM (400) — gerçek arm/disarm komutu."""
+        if not self._komut_izinli_mi():
+            return
+        if getattr(self, "_arm_durumu", False):
+            self._mavlink.komut_gonder(400, 0, 0, 0, 0, 0, 0, 0)
+            self._mesaj_ekle(6, "DISARM komutu gönderildi.")
+        else:
+            cevap = QMessageBox.question(
+                self, "ARM ONAYI",
+                "Motorlar ARM edilecek!\n\nPervaneler dönmeye başlayabilir.\n\nEmin misiniz?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if cevap == QMessageBox.Yes:
+                self._mavlink.komut_gonder(400, 1, 0, 0, 0, 0, 0, 0)
+                self._mesaj_ekle(3, "ARM komutu gönderildi.")
+
+    def _hizli_kalibrasyon(self, tur: int):
+        """Pre-Arm ekranındaki tek-tık kalibrasyon butonları (Gyro/Mag/Accel)."""
+        if not self._komut_izinli_mi():
+            return
+        p1 = 1 if tur == 1 else 0
+        p2 = 1 if tur == 2 else 0
+        p5 = 1 if tur == 5 else 0
+        self._mavlink.komut_gonder(241, p1, p2, 0, 0, p5, 0, 0)
+        adlar = {1: "Gyro", 2: "Manyetometre", 5: "İvmeölçer"}
+        self._mesaj_ekle(4, f"🔧 {adlar[tur]} kalibrasyonu başlatıldı.")
+
     def _prearm_renk(self, durum_lbl: QLabel, metin: str, ok: bool):
-        renk = "#4caf50" if ok else "#f44336"
+        renk = "#a8cf94" if ok else "#e0c07a"
         durum_lbl.setText(metin)
-        durum_lbl.setStyleSheet(f"color: {renk}; font-size: 9pt; font-weight: bold;")
+        durum_lbl.setStyleSheet(
+            f"color:{renk}; font-size:11px; font-weight:700; "
+            f"font-family:'Barlow Condensed',sans-serif; letter-spacing:0.06em;"
+        )
+        cerceve = getattr(durum_lbl, "_prearm_cerceve", None)
+        if cerceve is not None:
+            kenar = "rgba(143,191,122,0.4)" if ok else "rgba(217,162,74,0.5)"
+            zemin = KOKPIT_PANEL if ok else "rgba(217,162,74,0.08)"
+            cerceve.setStyleSheet(
+                f"QWidget#prearmSatir {{ background:{zemin}; border:1px solid {kenar}; padding:2px; }}"
+            )
 
     def _prearm_gps_guncelle(self, fix: int, uydu: int, lat: float, lon: float):
         ok = fix >= 3 and uydu >= 6
@@ -2120,6 +2516,26 @@ class AnaPencere(QMainWindow):
             self._prearm_renk(self._prearm_genel, "ARMED ✓", True)
         else:
             self._prearm_renk(self._prearm_genel, "DISARMED", False)
+        self._prearm_arm_karti_guncelle(arm)
+
+    def _prearm_arm_karti_guncelle(self, arm: bool):
+        """Pre-Arm sağ kolonundaki ARM DURUMU kartını (başlık + buton) günceller."""
+        if not hasattr(self, "_prearm_arm_baslik"):
+            return
+        if arm:
+            self._prearm_arm_baslik.setText("ARMED")
+            self._prearm_arm_baslik.setStyleSheet(
+                "color:#8fbf7a; font-size:40px; font-weight:700; background:transparent; "
+                "border:none; font-family:'Barlow Condensed',sans-serif; letter-spacing:0.04em;"
+            )
+            self._prearm_arm_btn.setText("MOTORLARI DISARM ET")
+        else:
+            self._prearm_arm_baslik.setText("DISARM")
+            self._prearm_arm_baslik.setStyleSheet(
+                "color:#d9a24a; font-size:40px; font-weight:700; background:transparent; "
+                "border:none; font-family:'Barlow Condensed',sans-serif; letter-spacing:0.04em;"
+            )
+            self._prearm_arm_btn.setText("MOTORLARI ARM ET")
 
     def _prearm_mesaj_isle(self, severity: int, metin: str):
         # severity 0-3 arası kritik/hata — pre-arm hataları genellikle buradan gelir
@@ -2130,8 +2546,10 @@ class AnaPencere(QMainWindow):
         # Genel durumu arm durumuna göre güncelle
         if "Arming" in metin or "Armed" in metin:
             self._prearm_renk(self._prearm_genel, "ARMED ✓", True)
+            self._prearm_arm_karti_guncelle(True)
         elif "Disarmed" in metin:
             self._prearm_renk(self._prearm_genel, "DISARMED", False)
+            self._prearm_arm_karti_guncelle(False)
 
     # ── Parametre sekmesi ─────────────────────────────────────────────────────
 
@@ -2143,8 +2561,8 @@ class AnaPencere(QMainWindow):
         # Araç çubuğu
         araci = QHBoxLayout()
 
-        self._param_indir_btn = QPushButton("Parametreleri İndir")
-        self._param_indir_btn.setStyleSheet(BAĞLAN_STILI)
+        self._param_indir_btn = QPushButton("PARAMETRELERİ İNDİR")
+        self._param_indir_btn.setStyleSheet(BAĞLAN_STİLİ_KOKPIT)
         self._param_indir_btn.clicked.connect(self._param_indir_tikla)
         araci.addWidget(self._param_indir_btn)
 
@@ -2220,22 +2638,22 @@ class AnaPencere(QMainWindow):
 
         # Araç çubuğu
         araci = QHBoxLayout()
-        self._log_listele_btn = QPushButton("📋 Log Listesini Al")
-        self._log_listele_btn.setStyleSheet(BAĞLAN_STILI)
+        self._log_listele_btn = QPushButton("LOG LİSTESİNİ AL")
+        self._log_listele_btn.setStyleSheet(BAĞLAN_STİLİ_KOKPIT)
         self._log_listele_btn.clicked.connect(self._log_listele_tikla)
         araci.addWidget(self._log_listele_btn)
 
-        self._log_indir_btn = QPushButton("⬇ Seçili Logu İndir")
+        self._log_indir_btn = QPushButton("SEÇİLİ LOGU İNDİR")
         self._log_indir_btn.clicked.connect(self._log_indir_tikla)
         araci.addWidget(self._log_indir_btn)
 
-        self._log_ac_btn = QPushButton("📂 Kaydedilen Logu Aç")
+        self._log_ac_btn = QPushButton("KAYDEDİLEN LOGU AÇ")
         self._log_ac_btn.clicked.connect(self._log_ac_tikla)
         araci.addWidget(self._log_ac_btn)
 
         araci.addStretch()
         self._log_durum_lbl = QLabel("Drone'a bağlanın ve log listesini alın.")
-        self._log_durum_lbl.setStyleSheet("color:#7eb8e0; font-size:11px;")
+        self._log_durum_lbl.setStyleSheet("color:#7e9cb8; font-size:11px;")
         araci.addWidget(self._log_durum_lbl)
         duz.addLayout(araci)
 
@@ -2254,10 +2672,12 @@ class AnaPencere(QMainWindow):
         self._log_tablo.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._log_tablo.setAlternatingRowColors(True)
         self._log_tablo.setStyleSheet(
-            "QTableWidget { background:#0d1b2a; color:#c8d8e8; gridline-color:#1a3050; }"
-            "QHeaderView::section { background:#0d2040; color:#7eb8e0; padding:4px; }"
-            "QTableWidget::item:alternate { background:#0a1520; }"
-            "QTableWidget::item:selected { background:#1a3060; }"
+            f"QTableWidget {{ background:{KOKPIT_ZEMIN}; color:#bdd8f2; gridline-color:{KOKPIT_PANEL}; "
+            "font-family:'Barlow',sans-serif; }}"
+            f"QHeaderView::section {{ background:{KOKPIT_PANEL}; color:#7e9cb8; padding:4px; "
+            "font-family:'Barlow Condensed',sans-serif; font-weight:600; }}"
+            f"QTableWidget::item:alternate {{ background:#111c26; }}"
+            "QTableWidget::item:selected { background:rgba(148,188,227,0.18); }"
         )
         duz.addWidget(self._log_tablo)
 
@@ -2551,40 +2971,6 @@ class AnaPencere(QMainWindow):
             self._param_guncelle(ad, deger, 0, 0)
         self._param_tablo.setSortingEnabled(True)
 
-    def _mini_harita_yukle(self):
-        """Uçuş sekmesi göründükten ~150ms sonra mini-haritayı oluşturur."""
-        if not HARITA_MEVCUT or getattr(self, "_mini_harita_tab_hazir", False):
-            return
-        self._mini_harita_tab_hazir = True
-        self._mini_harita_view = QWebEngineView()
-        self._mini_harita_view.setMinimumSize(200, 200)
-        sayfa = MiniHaritaSayfa(self._mini_harita_view)
-        self._mini_harita_view.setPage(sayfa)
-
-        def _yukle_tamamlandi(ok):
-            self._mini_harita_hazir = True
-            QTimer.singleShot(350, self._mini_harita_boyut_duzelt)
-            QTimer.singleShot(800, self._mini_harita_boyut_duzelt)
-
-        self._mini_harita_view.loadFinished.connect(_yukle_tamamlandi)
-        self._mini_harita_view.setHtml(MINI_HARITA_HTML)
-        self._mini_harita_stack.addWidget(self._mini_harita_view)   # index 1
-        self._mini_harita_stack.setCurrentIndex(1)
-
-    def _mini_harita_boyut_duzelt(self):
-        """Leaflet invalidateSize — widget boyutlandıktan sonra."""
-        if not getattr(self, "_mini_harita_hazir", False):
-            QTimer.singleShot(400, self._mini_harita_boyut_duzelt)
-            return
-        if not hasattr(self, "_mini_harita_view"):
-            return
-        h = self._mini_harita_view.height()
-        w = self._mini_harita_view.width()
-        if h <= 10 or w <= 10:
-            QTimer.singleShot(300, self._mini_harita_boyut_duzelt)
-            return
-        self._mini_js("boyutDuzelt();")
-
     def _harita_tab_yukle(self):
         if self._harita_tab_hazir:
             return
@@ -2642,8 +3028,34 @@ class AnaPencere(QMainWindow):
         self._ucus_kaydedici.baslat()
         self._log_timer.start()
         self._mesaj_ekle(6, f"Log: {self._logger.csv_yolu()}")
+        self._baglanti_zamani = time.time()
+        self._sure_timer.start()
         # GCS Failsafe — kuyruk thread-safe olduğu için doğrudan çağrılabilir
         self._gcs_failsafe_ayarla()
+
+    def _baglanti_temizligi_yap(self):
+        """
+        Bağlantı koptuğunda (otomatik ya da manuel KES) yapılması gereken TEK
+        ortak temizlik. Eskiden _kes_tikla ve _baglanti_kesildi farklı şeyler
+        yapıyordu (manuel KES'te logger/timer hiç durdurulmuyordu) — artık
+        ikisi de bunu çağırır, tutarlı ve güvenli kapanış garanti edilir.
+
+        Arka plan thread'leri artık sert `.terminate()` ile değil, her
+        thread'in kendi `durdur()` metoduyla (bkz. workers.py) nazikçe
+        durdurulur — bu, devam eden bir işlemin tamamlanınca artık kopmuş
+        bağlantıya/kapanmış GCS'e sinyal göndermesini de engeller.
+        """
+        self._log_timer.stop()
+        self._logger.durdur()
+        self._ucus_kaydedici.durdur()
+        self._js_timer.setInterval(1000)   # bağlı değilken harita güncellemesi gereksiz — yavaşlat
+        self._sure_timer.stop()
+        self._baglanti_zamani = None
+        for _ad in ("_alan_hazirlik_thread", "_terrain_thread",
+                    "_rally_thread", "_fence_thread", "_terrain_profil_thread"):
+            t = getattr(self, _ad, None)
+            if t is not None and t.isRunning():
+                t.durdur()
 
     def _baglanti_kesildi(self):
         self._bagli = False
@@ -2653,10 +3065,7 @@ class AnaPencere(QMainWindow):
         self._mesaj_ekle(4, "Bağlantı kesildi.")
         self._uyari_bant.show()
         QApplication.beep()
-        self._log_timer.stop()
-        self._logger.durdur()
-        self._ucus_kaydedici.durdur()
-        self._js_timer.setInterval(1000)   # bağlı değilken harita güncellemesi gereksiz — yavaşlat
+        self._baglanti_temizligi_yap()
         self._rapor_olustur_arka_plan()
 
     def _rapor_olustur_arka_plan(self):
@@ -2700,32 +3109,125 @@ class AnaPencere(QMainWindow):
     def _hata(self, mesaj: str):
         self._mesaj_ekle(3, mesaj)
 
+    def _ui_nabiz_artir(self):
+        """500ms'de bir çağrılır — UI event loop'unun canlı olduğunun kanıtı."""
+        self._ui_nabiz += 1
+
+    def _ui_watchdog_baslat(self):
+        """
+        Qt event loop'undan bağımsız, plain bir thread — _ui_nabiz sayacı
+        beklenen hızda ilerlemiyorsa UI thread'in donduğunu/deadlock'ta
+        olduğunu tespit eder. UI gerçekten donmuşsa Qt sinyalleri de
+        tetiklenmeyebilir, bu yüzden bu thread Qt'ye hiç dokunmadan
+        doğrudan diske log yazar — dürüst sınır: donmuş bir ekranı o an
+        "DONDU" yazısıyla güncelleyemez (donmuş event loop repaint
+        yapamaz), amaç teşhis/kayıt, canlı kurtarma değil.
+        """
+        log_yolu = os.path.join(os.path.expanduser("~"), ".dogus-gcs", "ui_watchdog.log")
+        os.makedirs(os.path.dirname(log_yolu), exist_ok=True)
+
+        def _izle():
+            son_nabiz = -1
+            son_degisim = time.time()
+            donuk_bildirildi = False
+            while True:
+                time.sleep(2.0)
+                simdiki = self._ui_nabiz
+                simdi = time.time()
+                if simdiki != son_nabiz:
+                    son_nabiz = simdiki
+                    son_degisim = simdi
+                    donuk_bildirildi = False
+                    continue
+                sure = simdi - son_degisim
+                if sure > 3.0 and not donuk_bildirildi:
+                    donuk_bildirildi = True
+                    try:
+                        with open(log_yolu, "a", encoding="utf-8") as f:
+                            f.write(
+                                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                                f"UI THREAD DONMUŞ OLABİLİR — {sure:.1f}sn'dir nabız ilerlemiyor\n"
+                            )
+                    except OSError:
+                        pass
+
+        threading.Thread(target=_izle, daemon=True, name="ui-watchdog").start()
+
     def _heartbeat_kontrol(self):
         if not self._bagli:
             return
         gecen = time.time() - self._mavlink.son_heartbeat_zamani
-        if gecen > 5:
+        # Esik 4sn: drone'un kendi FS_GCS_TIMEOUT'undan (varsayilan 10sn,
+        # bkz. _gcs_failsafe_ayarla) daha erken uyarir — operator, drone
+        # kendi basina RTL yapmadan once haberdar olur.
+        if gecen > 4:
+            self._uyari_bant.setText("BAĞLANTI YANIT VERMİYOR")
             self._uyari_bant.show()
             QApplication.beep()
+            # Worker yanit vermiyorsa harita/HUD'u da yavaslat — eski veriyi
+            # "canliymis gibi" gostermeyi birak (_baglanti_kesildi ile ayni
+            # yavaslatma, ama bagilanti henuz tam kopmadan).
+            if self._js_timer.interval() < 1000:
+                self._js_timer.setInterval(1000)
         else:
+            self._uyari_bant.setText("BAĞLANTI KESİLDİ")
             self._uyari_bant.hide()
+            if self._js_timer.interval() != 200:
+                self._js_timer.setInterval(200)
+
+        # Kategori bazlı bayat veri kontrolü — genel heartbeat taze olsa
+        # bile GPS/batarya sensörü ayrı ayrı susmuş olabilir (bkz.
+        # mavlink_handler.py: _son_veri_zamani / son_veri_zamanlari).
+        zamanlar = self._mavlink.son_veri_zamanlari
+        simdi = time.time()
+
+        gps_zaman = zamanlar.get("gps")
+        gps_bayat = gps_zaman is not None and (simdi - gps_zaman) > 3.0
+        if gps_bayat != getattr(self, "_gps_bayat_son", False):
+            if gps_bayat:
+                self._gps_fix_lbl.setStyleSheet("color:#5a6a7a; font-style:italic; font-size:11px;")
+            else:
+                # Debounce önbelleğini sıfırla — bir sonraki gerçek GPS
+                # mesajı rengi baştan doğru uygulasın (_gps_guncelle).
+                self._gps_fix_renk_son = None
+            self._gps_bayat_son = gps_bayat
+
+        bat_zaman = zamanlar.get("batarya")
+        bat_bayat = bat_zaman is not None and (simdi - bat_zaman) > 5.0
+        if bat_bayat != getattr(self, "_bat_bayat_son", False):
+            if bat_bayat:
+                self._batarya_detay.setStyleSheet("color:#5a6a7a; font-style:italic; font-size:11px;")
+            else:
+                self._batarya_detay.setStyleSheet("color:#ffb74d; font-size:11px;")
+            self._bat_bayat_son = bat_bayat
 
     def _hb_guncelle(self, mod_id: int, arm: bool):
         self._arm_durumu = arm
         self._log_satiri["mod_id"] = mod_id
-        self._mod_lbl.setText(f"MOD: {UÇUŞ_MODLARI.get(mod_id, f'MOD-{mod_id}')}")
-        _b = "border-radius:3px; padding:2px 8px; font-size:10px;"
+        self._mod_lbl.setText(self._rozet_html(
+            "MOD", UÇUŞ_MODLARI.get(mod_id, f"MOD-{mod_id}"), "#bdd8f2"
+        ))
+        if hasattr(self, "_mod_btn_map"):
+            for _mid, _btn in self._mod_btn_map.items():
+                if _mid == mod_id:
+                    _btn.setStyleSheet(
+                        "QPushButton { background:#94bce3; color:#12202c; "
+                        "border:1px solid #94bce3; font-weight:bold; }"
+                    )
+                else:
+                    _btn.setStyleSheet("")
         _onceki_arm = getattr(self, "_onceki_arm_durumu", False)
         if arm:
-            self._arm_lbl.setText("● ARMED")
+            self._arm_lbl.setText(self._rozet_html("DURUM", "ARMED", "#a8cf94"))
             self._arm_lbl.setStyleSheet(
-                f"color:#f44336; background:#2a0a0a; border:1px solid #6a1a1a; font-weight:bold; {_b}"
+                "background:rgba(143,191,122,0.12); "
+                "border:1px solid rgba(143,191,122,0.45); padding:1px 12px;"
             )
             self._ucus_yapildi = True   # Bu bağlantıda en az bir kez ARM oldu
         else:
-            self._arm_lbl.setText("DISARM")
+            self._arm_lbl.setText(self._rozet_html("DURUM", "DISARM", "#7e9cb8"))
             self._arm_lbl.setStyleSheet(
-                f"color:#666; background:#111; border:1px solid #2a2a2a; {_b}"
+                f"background:transparent; border:1px solid {KOKPIT_KENAR}; padding:1px 12px;"
             )
             # ARMED → DISARM geçişi: drone indi, otomatik rapor üret
             if _onceki_arm and getattr(self, "_ucus_yapildi", False):
@@ -2777,13 +3279,22 @@ class AnaPencere(QMainWindow):
                 self._son_bat_uyari = 25
                 self._sesli_uyan("Batarya düşük")
 
+    def _hud_flush(self):
+        """_hud_kuyruk'ta bekleyen en-son değerleri ekrana yazar (5Hz, _js_timer)."""
+        if "vfr" in self._hud_kuyruk:
+            irtifa, hiz, dikey, uzaklik = self._hud_kuyruk.pop("vfr")
+            self._irtifa_lbl.setText(f"{irtifa:.2f}")
+            self._hiz_lbl.setText(f"{hiz:.2f}")
+            self._dikey_lbl.setText(f"{dikey:+.2f}")
+            self._uzaklik_lbl.setText(f"{uzaklik:.0f}")
+
     def _vfr_guncelle(self, irtifa: float, hiz: float, dikey: float, uzaklik: float):
+        # NOT: state güncelleme, loglama ve RTL izleyici HER mesajda (10Hz)
+        # senkron çalışır — sadece asagıdaki setText çağrıları (saf ekran
+        # boyaması) _hud_kuyruk üzerinden 5Hz'e (_js_timer) düşürülür.
         self._guncel_irtifa      = irtifa
         self._guncel_eve_uzaklik = uzaklik
-        self._irtifa_lbl.setText(f"{irtifa:.2f}")
-        self._hiz_lbl.setText(f"{hiz:.2f}")
-        self._dikey_lbl.setText(f"{dikey:+.2f}")
-        self._uzaklik_lbl.setText(f"{uzaklik:.0f}")
+        self._hud_kuyruk["vfr"] = (irtifa, hiz, dikey, uzaklik)
         self._log_satiri.update({"irtifa": irtifa, "hiz": hiz, "dikey_hiz": dikey, "eve_uzaklik": uzaklik})
         self._rtl_izleyici.guncelle(
             uzaklik,
@@ -2804,6 +3315,9 @@ class AnaPencere(QMainWindow):
             fix_renk = "#ffc107"   # sarı — 2D
         else:
             fix_renk = "#4caf50"   # yeşil — 3D+
+        if hasattr(self, "_gps_badge_lbl"):
+            _badge_renk = "#a8cf94" if fix >= 3 else ("#e0c07a" if fix == 2 else "#c98b85")
+            self._gps_badge_lbl.setText(self._rozet_html("GPS", f"{fix_str} · {uydu}", _badge_renk))
         self._gps_fix_lbl.setText(f"Fix: {fix_str}")
         if fix_renk != getattr(self, "_gps_fix_renk_son", None):
             self._gps_fix_renk_son = fix_renk
@@ -2817,9 +3331,6 @@ class AnaPencere(QMainWindow):
         # Harita JS güncellemesi — doğrudan değil, 500 ms timer buffer'ına yaz
         self._harita_bekleyen_lat = lat
         self._harita_bekleyen_lon = lon
-        # Mini-harita (uçuş sekmesi) buffer
-        self._mini_harita_bekleyen_lat = lat
-        self._mini_harita_bekleyen_lon = lon
         self._guncel_gps_fix = fix
         self._log_satiri.update({"gps_fix": fix, "gps_uydu": uydu, "lat": lat, "lon": lon})
 
@@ -2910,41 +3421,6 @@ class AnaPencere(QMainWindow):
             pass
 
     # ── Mini-harita JS altyapısı ──────────────────────────────────────────────
-
-    def _mini_js(self, script: str):
-        """Mini-harita JS kuyruğuna ekle."""
-        if HARITA_MEVCUT and getattr(self, "_mini_harita_hazir", False):
-            self._mini_js_kuyruk.append(script)
-
-    def _mini_js_temizle(self):
-        """Timer tick'inde mini-harita JS kuyruğunu flush eder."""
-        if not self._mini_js_kuyruk:
-            return
-        if not HARITA_MEVCUT or not getattr(self, "_mini_harita_hazir", False):
-            self._mini_js_kuyruk.clear()
-            return
-        if not hasattr(self, "_mini_harita_view"):
-            self._mini_js_kuyruk.clear()
-            return
-        kod = "\n".join(self._mini_js_kuyruk)
-        self._mini_js_kuyruk.clear()
-        try:
-            self._mini_harita_view.page().runJavaScript(kod)
-        except Exception:
-            pass
-
-    def _mini_harita_js_guncelle(self):
-        """Timer tick'inde mini-harita GPS buffer'ını kuyruğa ekler."""
-        lat = self._mini_harita_bekleyen_lat
-        lon = self._mini_harita_bekleyen_lon
-        if lat is None:
-            return
-        self._mini_harita_bekleyen_lat = None
-        if lat == 0.0 and lon == 0.0:
-            return
-        alt = self._guncel_irtifa
-        yaw = self._log_satiri.get("yaw", 0.0)
-        self._mini_js(f"droneGuncelle({lat},{lon},{alt},{yaw});")
 
     def _harita_js_guncelle(self):
         """100 ms timer'ından GPS buffer'ını kuyruğa ekler."""
@@ -3544,16 +4020,17 @@ class AnaPencere(QMainWindow):
             bool(bayraklar & 0x0002) and   # yatay hız kilidi
             bool(bayraklar & 0x0004)       # dikey hız kilidi (yüksek irtifada kritik)
         )
-        _b = "border-radius:3px; padding:2px 8px; font-size:10px;"
         if bayraklar & 0x01F:
-            self._ekf_lbl.setText(f"EKF: OK ({hata:.2f})")
+            self._ekf_lbl.setText(self._rozet_html("EKF", f"İYİ {hata:.2f}", "#a8cf94"))
             self._ekf_lbl.setStyleSheet(
-                f"color:#4caf50; background:#0a1e0a; border:1px solid #1a5a1a; {_b}"
+                "background:rgba(143,191,122,0.12); "
+                "border:1px solid rgba(143,191,122,0.45); padding:1px 12px;"
             )
         else:
-            self._ekf_lbl.setText("EKF: HATA")
+            self._ekf_lbl.setText(self._rozet_html("EKF", "HATA", "#c98b85"))
             self._ekf_lbl.setStyleSheet(
-                f"color:#f44336; background:#1e0a0a; border:1px solid #5a1a1a; font-weight:bold; {_b}"
+                "background:rgba(194,91,82,0.12); "
+                "border:1px solid rgba(194,91,82,0.5); padding:1px 12px;"
             )
         self._log_satiri.update({"ekf_bayrak": bayraklar, "ekf_hata": hata})
 
@@ -3681,6 +4158,7 @@ class AnaPencere(QMainWindow):
         self._bagli = False
         self._hb_timer.stop()
         self._mavlink.durdur()
+        self._baglanti_temizligi_yap()
         self._baglan_btn.setEnabled(True)
         self._kes_btn.setEnabled(False)
 
@@ -3703,33 +4181,64 @@ class AnaPencere(QMainWindow):
         else:
             QMessageBox.information(self, "Rapor", "Henüz yeterli uçuş verisi yok.\nDrone'u bağla ve biraz uçur.")
 
+    def _komut_izinli_mi(self) -> bool:
+        """
+        Riskli/etkili komutlardan (RTL, iniş, mod değiştirme, kalibrasyon,
+        paraşüt vb.) önce çağrılır. Bağlantı yoksa veya worker heartbeat
+        bayatsa (bkz. _heartbeat_kontrol, 4sn eşiği) komutu engeller ve
+        kullanıcıya GERÇEK durumu bildirir — eskiden bağlantı kesikken bile
+        bu butonlara tıklanabiliyordu ve "komut gönderildi" mesajı
+        gösteriliyordu, oysa alt katman komutu sessizce yutuyordu.
+        """
+        if not self._bagli:
+            self._mesaj_ekle(2, "Komut gönderilmedi — bağlantı yok.")
+            return False
+        if time.time() - self._mavlink.son_heartbeat_zamani > 4.0:
+            self._mesaj_ekle(2, "Komut gönderilmedi — bağlantı yanıt vermiyor.")
+            return False
+        return True
+
     def _rtl_tikla(self):
+        if not self._komut_izinli_mi():
+            return
         self._mavlink.mod_degistir(6)
         self._mesaj_ekle(3, "EV'E DÖN (RTL) komutu gönderildi.")
 
     def _hovering_tikla(self):
+        if not self._komut_izinli_mi():
+            return
         self._mavlink.mod_degistir(5)
         self._mesaj_ekle(6, "HOVERING (LOITER) komutu gönderildi.")
 
     def _inis_tikla(self):
+        if not self._komut_izinli_mi():
+            return
         self._mavlink.mod_degistir(9)
         self._mesaj_ekle(3, "ACİL İNİŞ komutu gönderildi.")
 
     def _devam_tikla(self):
+        if not self._komut_izinli_mi():
+            return
         self._mavlink.mod_degistir(3)
         self._mesaj_ekle(6, "DEVAM ET (AUTO) komutu gönderildi.")
 
     def _mod_tikla(self, mod_id: int):
+        if not self._komut_izinli_mi():
+            return
         self._mavlink.mod_degistir(mod_id)
         self._mesaj_ekle(6, f"Mod: {UÇUŞ_MODLARI.get(mod_id, mod_id)}")
 
     def _ev_yap_tikla(self):
+        if not self._komut_izinli_mi():
+            return
         self._mavlink.ev_noktasi_sifirla()
         self._js(f"evNoktasiGuncelle({self._guncel_lat}, {self._guncel_lon});")
         self._mesaj_ekle(6, f"Ev noktası güncellendi: {self._guncel_lat:.5f}, {self._guncel_lon:.5f}")
 
     def _kalibrasyon_tikla(self):
         """MAV_CMD_PREFLIGHT_CALIBRATION (241) — gyro/manyetometre/ivmeölçer kalibrasyonu."""
+        if not self._komut_izinli_mi():
+            return
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QDialogButtonBox
         dlg = QDialog(self)
         dlg.setWindowTitle("🔧 Kalibrasyon Seçimi")
@@ -3771,6 +4280,8 @@ class AnaPencere(QMainWindow):
 
     def _parasut_tikla(self):
         """DO_PARACHUTE (208) — paraşütü tetikler. Onay gerektirir."""
+        if not self._komut_izinli_mi():
+            return
         cevap = QMessageBox.question(
             self, "⚠ PARAŞÜT ONAYI",
             "Paraşüt fırlatılacak!\n\nDrone düşecek ve kurtarılamayabilir.\n\nEmin misiniz?",
@@ -4375,7 +4886,7 @@ class AnaPencere(QMainWindow):
         self._wp_tablo.blockSignals(True)
         for r in range(self._wp_tablo.rowCount()):
             aktif = (r == seq - 1)
-            renk = QColor("#1a3a1a") if aktif else QColor("#0d1b2a")
+            renk = QColor(148, 188, 227, 24) if aktif else QColor(KOKPIT_ZEMIN)
             for c in range(self._wp_tablo.columnCount()):
                 itm = self._wp_tablo.item(r, c)
                 if itm:
@@ -4407,16 +4918,21 @@ class AnaPencere(QMainWindow):
             self._mesaj_ekle(4, "RC sinyali geri geldi.")
         # Badge güncelle
         if rssi == 255 or rssi == 0:
-            self._rc_lbl.setText("RC: —")
+            self._rc_lbl.setText(self._rozet_html("RC", "—", "#7e9cb8"))
             self._rc_lbl.setStyleSheet(
-                f"color:#666; background:#111; border:1px solid #2a2a2a; {self._BADGE}"
+                f"background:transparent; border:1px solid {KOKPIT_KENAR}; padding:1px 12px;"
             )
         else:
             guc = int(rssi / 254 * 100)
-            renk = "#4caf50" if guc > 60 else "#ffc107" if guc > 25 else "#f44336"
-            self._rc_lbl.setText(f"RC {guc}%")
+            if guc > 60:
+                renk, kenar, zemin = "#a8cf94", "rgba(143,191,122,0.45)", "rgba(143,191,122,0.12)"
+            elif guc > 25:
+                renk, kenar, zemin = "#e0c07a", "rgba(224,192,122,0.45)", "rgba(224,192,122,0.12)"
+            else:
+                renk, kenar, zemin = "#c98b85", "rgba(194,91,82,0.5)", "rgba(194,91,82,0.12)"
+            self._rc_lbl.setText(self._rozet_html("RC", f"%{guc}", renk))
             self._rc_lbl.setStyleSheet(
-                f"color:{renk}; background:#111; border:1px solid #333; {self._BADGE}"
+                f"background:{zemin}; border:1px solid {kenar}; padding:1px 12px;"
             )
 
     _FENCE_TUR_TR = {
@@ -4450,9 +4966,6 @@ class AnaPencere(QMainWindow):
             self._wp_home_lbl.setText(f"Ev: {lat:.5f}, {lon:.5f}")
         # Harita marker (evNoktasiGuncelle JS fonksiyonu zaten mevcut)
         self._js(f"evNoktasiGuncelle({lat}, {lon});")
-        # Mini harita
-        if hasattr(self, '_mini_harita_hazir') and self._mini_harita_hazir:
-            self._mini_js(f"evNoktasiGoster({lat}, {lon});")
         self._mesaj_ekle(6, f"Ev noktası güncellendi (HOME_POSITION): {lat:.5f}, {lon:.5f}")
 
     def _batarya_hucre_guncelle(self, min_volt: float, hucre_sayisi: int):
@@ -5170,9 +5683,8 @@ class AnaPencere(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # Normal akışta ana harita, mini-harita loadFinished'ından sonra tetiklenir
-        # (bkz. _mini_harita_yukle). Mini-harita hiç yüklenmezse (HARITA_MEVCUT False
-        # ya da uçuş sekmesi henüz oluşturulmadıysa) güvenlik ağı olarak burada da dene.
+        # 1B düzeninde harita, Uçuş ekranının sağ paneli — pencere gösterildikten
+        # 1500ms sonra (Chromium'un geçerli HWND'ye ihtiyacı olduğu için) yüklenir.
         if HARITA_MEVCUT and not self._harita_tab_hazir:
             QTimer.singleShot(1500, self._harita_tab_yukle)
 
@@ -5181,13 +5693,10 @@ class AnaPencere(QMainWindow):
         self._hb_timer.stop()
         self._log_timer.stop()
         self._js_timer.stop()
+        self._sure_timer.stop()
         self._js_kuyruk.clear()
-        self._mini_js_kuyruk.clear()
-        # Arka plan thread'lerini durdur (beklemez — sadece sinyaller kesilir)
-        for t in (self._alan_hazirlik_thread, self._terrain_thread,
-                  self._rally_thread, self._fence_thread):
-            if t is not None and t.isRunning():
-                t.terminate()
+        # Arka plan thread'lerini nazikçe durdur (artık sert .terminate() değil)
+        self._baglanti_temizligi_yap()
         self._mavlink.durdur()
         if hasattr(self, '_tile_sunucu'):
             self._tile_sunucu.durdur()

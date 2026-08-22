@@ -203,34 +203,34 @@ class UcusKaydedici:
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; }}
-  header {{ background: #161b22; border-bottom: 2px solid #21262d; padding: 18px 32px; display: flex; align-items: center; gap: 16px; }}
-  header h1 {{ font-size: 1.4rem; color: #58a6ff; }}
-  header span {{ font-size: 0.9rem; color: #8b949e; }}
+  body {{ font-family: 'Barlow', 'Segoe UI', Arial, sans-serif; background: #f2f2f3; color: #1d1f20; }}
+  header {{ background: #16222e; border-bottom: 1px solid rgba(148,188,227,0.22); padding: 18px 32px; display: flex; align-items: center; gap: 16px; }}
+  header h1 {{ font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: 0.04em; font-size: 1.4rem; color: #e7e7ea; }}
+  header span {{ font-size: 0.9rem; color: #9ebbd8; }}
   .container {{ max-width: 1200px; margin: 0 auto; padding: 24px; }}
   .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }}
-  .card {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 18px; text-align: center; }}
-  .card .val {{ font-size: 2rem; font-weight: bold; color: #58a6ff; }}
-  .card .lbl {{ font-size: 0.8rem; color: #8b949e; margin-top: 4px; }}
+  .card {{ background: transparent; border: 1px solid rgba(29,31,32,0.2); border-radius: 0; padding: 18px; text-align: center; }}
+  .card .val {{ font-family: 'Barlow Condensed', sans-serif; font-size: 2rem; font-weight: 700; color: #416180; }}
+  .card .lbl {{ font-size: 0.8rem; letter-spacing: 0.05em; text-transform: uppercase; color: #5d5d60; margin-top: 4px; }}
   .charts {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }}
-  .chart-box {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 20px; }}
-  .chart-box h3 {{ font-size: 0.95rem; color: #8b949e; margin-bottom: 14px; }}
-  .badges {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 20px; margin-bottom: 24px; }}
-  .badges h2 {{ font-size: 1rem; margin-bottom: 14px; color: #8b949e; }}
-  .badge {{ padding: 10px 16px; border-radius: 6px; margin-bottom: 8px; font-size: 0.9rem; font-weight: 500; }}
-  .badge.yesil {{ background: #0d4429; border: 1px solid #238636; color: #3fb950; }}
-  .badge.sari  {{ background: #2d2208; border: 1px solid #9e6a03; color: #d29922; }}
-  .badge.kirmizi {{ background: #2d0b0b; border: 1px solid #da3633; color: #f85149; }}
-  .tablo {{ background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 20px; margin-bottom: 24px; overflow-x: auto; }}
-  .tablo h2 {{ font-size: 1rem; margin-bottom: 14px; color: #8b949e; }}
+  .chart-box {{ background: transparent; border: 1px solid rgba(29,31,32,0.2); border-radius: 0; padding: 20px; }}
+  .chart-box h3 {{ font-size: 0.95rem; color: #5d5d60; margin-bottom: 14px; }}
+  .badges {{ background: transparent; border: 1px solid rgba(29,31,32,0.2); border-radius: 0; padding: 20px; margin-bottom: 24px; }}
+  .badges h2 {{ font-size: 1rem; margin-bottom: 14px; color: #5d5d60; }}
+  .badge {{ padding: 10px 16px; border-radius: 0; margin-bottom: 8px; font-size: 0.9rem; font-weight: 500; }}
+  .badge.yesil {{ background: rgba(143,191,122,0.12); border: 1px solid #8fbf7a; color: #4a7a3a; }}
+  .badge.sari  {{ background: rgba(217,162,74,0.12); border: 1px solid #d9a24a; color: #8a6414; }}
+  .badge.kirmizi {{ background: rgba(194,91,82,0.12); border: 1px solid #c25b52; color: #8f3b34; }}
+  .tablo {{ background: transparent; border: 1px solid rgba(29,31,32,0.2); border-radius: 0; padding: 20px; margin-bottom: 24px; overflow-x: auto; }}
+  .tablo h2 {{ font-size: 1rem; margin-bottom: 14px; color: #5d5d60; }}
   table {{ width: 100%; border-collapse: collapse; font-size: 0.88rem; }}
-  th {{ background: #21262d; color: #8b949e; padding: 8px 14px; text-align: left; }}
-  td {{ padding: 8px 14px; border-bottom: 1px solid #21262d; }}
-  .genel {{ text-align: center; padding: 18px; border-radius: 10px; margin-bottom: 24px; font-size: 1.1rem; font-weight: bold; }}
-  .genel.yesil   {{ background: #0d4429; border: 1px solid #238636; color: #3fb950; }}
-  .genel.sari    {{ background: #2d2208; border: 1px solid #9e6a03; color: #d29922; }}
-  .genel.kirmizi {{ background: #2d0b0b; border: 1px solid #da3633; color: #f85149; }}
-  footer {{ text-align: center; padding: 20px; color: #444; font-size: 0.8rem; border-top: 1px solid #21262d; margin-top: 8px; }}
+  th {{ background: rgba(29,31,32,0.06); color: #5d5d60; padding: 8px 14px; text-align: left; }}
+  td {{ padding: 8px 14px; border-bottom: 1px solid rgba(29,31,32,0.12); }}
+  .genel {{ text-align: center; padding: 18px; border-radius: 0; margin-bottom: 24px; font-size: 1.1rem; font-weight: bold; }}
+  .genel.yesil   {{ background: rgba(143,191,122,0.12); border: 1px solid #8fbf7a; color: #4a7a3a; }}
+  .genel.sari    {{ background: rgba(217,162,74,0.12); border: 1px solid #d9a24a; color: #8a6414; }}
+  .genel.kirmizi {{ background: rgba(194,91,82,0.12); border: 1px solid #c25b52; color: #8f3b34; }}
+  footer {{ text-align: center; padding: 20px; color: #9a9a9c; font-size: 0.8rem; border-top: 1px solid rgba(29,31,32,0.12); margin-top: 8px; }}
   @media (max-width: 768px) {{ .charts {{ grid-template-columns: 1fr; }} }}
 </style>
 </head>
@@ -305,8 +305,8 @@ const _opts = (renk, dolu) => ({{
   responsive: true,
   plugins: {{ legend: {{ display: false }} }},
   scales: {{
-    x: {{ ticks: {{ color: '#8b949e', maxTicksLimit: 8 }}, grid: {{ color: '#21262d' }} }},
-    y: {{ ticks: {{ color: '#8b949e' }}, grid: {{ color: '#21262d' }} }}
+    x: {{ ticks: {{ color: '#5d5d60', maxTicksLimit: 8 }}, grid: {{ color: 'rgba(29,31,32,0.08)' }} }},
+    y: {{ ticks: {{ color: '#5d5d60' }}, grid: {{ color: 'rgba(29,31,32,0.08)' }} }}
   }},
   elements: {{ point: {{ radius: 0 }}, line: {{ tension: 0.3, borderWidth: 2, fill: dolu,
     backgroundColor: renk+'33' }} }}

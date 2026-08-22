@@ -144,10 +144,31 @@ class MAVLinkBaglantisi(QThread):
         # _mesaj_dongusu içinde tüketilir (race condition önler).
         self._komut_kuyrugu: _queue.Queue = _queue.Queue()
 
+        # Log indirme / mission yükleme durum makineleri — _mesaj_dongusu'nun
+        # kendi recv_match döngüsünü BIRAKMADAN kademeli ilerler. Eskiden bu
+        # işlemler kendi içlerinde ayrı bir blocking recv_match döngüsü
+        # çalıştırıyordu; bu, eşleşmeyen mesajları (HEARTBEAT/GPS/vb.) sessizce
+        # yutup telemetriyi dakikalarca "donmuş" gösteriyordu. Artık ilerleme,
+        # _mesaj_dongusu'nun normal dispatch zincirine gelen mesajlarla olur.
+        self._log_indirme_durumu: dict | None = None
+        self._mission_yukle_durumu: dict | None = None
+
+        # Kategori bazlı "son veri zamanı" — genel heartbeat/mesaj zamanından
+        # (_son_hb_zamani, HER mesaj tipinde güncellenir) farklı olarak, bu
+        # sözlük sadece GÜVENLİK açısından anlamlı kategorileri (GPS, batarya)
+        # ayrı ayrı izler. Örn. GPS sensörü tamamen sussa bile HEARTBEAT
+        # geldikçe bağlantı "taze" görünür — bu, GPS'in kendi bayatlığını
+        # maskeler. gcs_main.py._heartbeat_kontrol bunu kategori bazlı okur.
+        self._son_veri_zamani: dict[str, float] = {}
+
         # Terrain server — alan_verisi.npz varsa DEM yükle
         self._terrain_dem       = None   # float32 yükseklik array'i
         self._terrain_transform = None   # rasterio Affine (veya tuple)
         self._terrain_yukle()
+
+    @property
+    def son_veri_zamanlari(self) -> dict:
+        return dict(self._son_veri_zamani)
 
     @property
     def son_heartbeat_zamani(self) -> float:
@@ -208,6 +229,20 @@ class MAVLinkBaglantisi(QThread):
                     break
                 except Exception:
                     pass  # Komut hatası → sessiz geç, döngüyü kırma
+
+            # ── Log indirme / mission yükleme zaman aşımı kontrolü ───────────
+            # Bloklamayan durum makineleri; her turda (≈0.5s) süresi geçmiş
+            # bir işlem var mı diye bakılır — recv_match'i bekletmez.
+            if self._log_indirme_durumu is not None:
+                if time.time() > self._log_indirme_durumu["bitis"]:
+                    self.log_hata.emit(
+                        f"Log {self._log_indirme_durumu['log_id']}: zaman aşımı"
+                    )
+                    self._log_indirme_durumu = None
+            if self._mission_yukle_durumu is not None:
+                if time.monotonic() > self._mission_yukle_durumu["bitis"]:
+                    self.mission_yuklendi.emit(False, "Zaman aşımı — drone yanıt vermedi (15 sn)")
+                    self._mission_yukle_durumu = None
 
             if msg is None:
                 continue  # timeout → bağlantıyı kesme, döngüye devam
@@ -272,6 +307,14 @@ class MAVLinkBaglantisi(QThread):
                 self._isle_batarya_status(msg)
             elif tip == "SERVO_OUTPUT_RAW":
                 self._isle_servo(msg)
+            elif tip == "LOG_ENTRY":
+                self._isle_log_entry(msg)
+            elif tip == "LOG_DATA":
+                self._isle_log_data(msg)
+            elif tip in ("MISSION_REQUEST", "MISSION_REQUEST_INT"):
+                self._isle_mission_request(msg)
+            elif tip == "MISSION_ACK":
+                self._isle_mission_ack(msg)
 
     # ------------------------------------------------------------------
     def _isle_hb(self, msg):
@@ -279,6 +322,7 @@ class MAVLinkBaglantisi(QThread):
         self.kalp_atisi.emit(msg.custom_mode, arm)
 
     def _isle_batarya(self, msg):
+        self._son_veri_zamani["batarya"] = time.time()
         volt = msg.voltage_battery / 1000.0 if msg.voltage_battery != 65535 else 0.0
         amper = msg.current_battery / 100.0 if msg.current_battery != -1 else 0.0
         yuzde = msg.battery_remaining if msg.battery_remaining != -1 else -1
@@ -296,6 +340,7 @@ class MAVLinkBaglantisi(QThread):
         )
 
     def _isle_gps(self, msg):
+        self._son_veri_zamani["gps"] = time.time()
         fix = msg.fix_type
         uydu = msg.satellites_visible
         lat = msg.lat / 1e7
@@ -711,18 +756,18 @@ class MAVLinkBaglantisi(QThread):
     def mission_yukle(self, wp_listesi: list):
         """
         Waypoint listesini MAVLink MISSION protokolüyle drone'a yükler.
-        Kuyruk üzerinden MAVLink thread'inde çalışır — thread-safe.
+        Kuyruk üzerinden MAVLink thread'inde BAŞLATILIR; ilerleme
+        _mesaj_dongusu'nun normal dispatch'inden (MISSION_REQUEST/_INT,
+        MISSION_ACK — bkz. _isle_mission_request/_isle_mission_ack) gelen
+        mesajlarla kademeli yürür. Bu sayede yükleme sürerken (15 sn'ye
+        kadar) HEARTBEAT/GPS/telemetri mesajları işlenmeye devam eder —
+        eskiden burada ayrı bir blocking recv_match döngüsü vardı ve
+        eşleşmeyen tüm mesajları sessizce yutup telemetriyi donduruyordu.
         """
-        self._kuyruga_ekle(self._mission_yukle_ic, list(wp_listesi))
+        self._kuyruga_ekle(self._mission_yukle_baslat, list(wp_listesi))
 
-    def _mission_yukle_ic(self, wp_listesi: list):
-        """
-        MAVLink MISSION upload sırası:
-          1. MISSION_CLEAR_ALL → drone listesini sıfırla
-          2. MISSION_COUNT     → toplam item sayısı
-          3. Her MISSION_REQUEST/MISSION_REQUEST_INT için MISSION_ITEM_INT gönder
-          4. MISSION_ACK bekle
-        """
+    def _mission_yukle_baslat(self, wp_listesi: list):
+        """MISSION_CLEAR_ALL + MISSION_COUNT gönderir, durumu kurar ve döner."""
         if self._baglanti is None:
             self.mission_yuklendi.emit(False, "Bağlantı yok")
             return
@@ -730,84 +775,87 @@ class MAVLinkBaglantisi(QThread):
         ts  = self._baglanti.target_system
         tc  = self._baglanti.target_component
 
-        # 1. Mevcut görevi temizle
         mav.mission_clear_all_send(ts, tc)
-        import time as _time
-        _time.sleep(0.4)
+        time.sleep(0.4)   # ArduPilot'un clear_all'ı işlemesi için kısa, tek seferlik bekleme
 
-        # 2. Toplam item sayısı = ev noktası (0) + waypointler
-        toplam = len(wp_listesi) + 1
-        mav.mission_count_send(ts, tc, toplam,
-                               mission_type=0)   # MAV_MISSION_TYPE_MISSION
+        toplam = len(wp_listesi) + 1   # ev noktası (0) + waypointler
+        mav.mission_count_send(ts, tc, toplam, mission_type=0)
 
-        # 3. Request'lere cevap ver
-        gonderilen = set()
-        bitis = _time.monotonic() + 15.0
-        while _time.monotonic() < bitis:
-            msg = self._baglanti.recv_match(
-                type=['MISSION_REQUEST', 'MISSION_REQUEST_INT', 'MISSION_ACK'],
-                blocking=True, timeout=2.0
+        self._mission_yukle_durumu = {
+            "wp_listesi": wp_listesi,
+            "gonderilen": set(),
+            "bitis": time.monotonic() + 15.0,
+        }
+
+    def _isle_mission_request(self, msg):
+        """MISSION_REQUEST/MISSION_REQUEST_INT geldikçe ilgili item'ı gönderir."""
+        durum = self._mission_yukle_durumu
+        if durum is None or self._baglanti is None:
+            return
+        mav = self._baglanti.mav
+        ts  = self._baglanti.target_system
+        tc  = self._baglanti.target_component
+
+        seq = msg.seq
+        if seq in durum["gonderilen"]:
+            return
+        durum["gonderilen"].add(seq)
+        wp_listesi = durum["wp_listesi"]
+
+        if seq == 0:
+            # Ev noktası — drone'un mevcut konumu, AGL 0
+            mav.mission_item_int_send(
+                ts, tc,
+                0,   # seq
+                0,   # frame: MAV_FRAME_GLOBAL
+                16,  # command: MAV_CMD_NAV_WAYPOINT
+                1,   # current (home point)
+                1,   # autocontinue
+                0, 0, 0, 0,
+                int(self._guncel_lat * 1e7),
+                int(self._guncel_lon * 1e7),
+                0.0,   # ev noktası AGL = 0
+                mission_type=0
             )
-            if msg is None:
-                continue
-            t = msg.get_type()
-            if t in ('MISSION_REQUEST', 'MISSION_REQUEST_INT'):
-                seq = msg.seq
-                if seq in gonderilen:
-                    continue
-                gonderilen.add(seq)
-                if seq == 0:
-                    # Ev noktası — drone'un mevcut konumu, AGL 0
-                    mav.mission_item_int_send(
-                        ts, tc,
-                        0,   # seq
-                        0,   # frame: MAV_FRAME_GLOBAL
-                        16,  # command: MAV_CMD_NAV_WAYPOINT
-                        1,   # current (home point)
-                        1,   # autocontinue
-                        0, 0, 0, 0,
-                        int(self._guncel_lat * 1e7),
-                        int(self._guncel_lon * 1e7),
-                        0.0,   # ev noktası AGL = 0
-                        mission_type=0
-                    )
-                elif seq - 1 < len(wp_listesi):
-                    wp = wp_listesi[seq - 1]
-                    _KOMUT_KODLARI = {
-                        "NAV_WAYPOINT":      16,
-                        "TAKEOFF":           22,
-                        "LAND":              21,
-                        "LOITER_TURNS":      18,
-                        "LOITER_TIME":       19,
-                        "LOITER_UNLIMITED":  17,
-                        "RTL":               20,
-                        "DELAY":             93,
-                        "DO_LAND_START":     189,
-                    }
-                    cmd_id = _KOMUT_KODLARI.get(wp.get("komut", "NAV_WAYPOINT"), 16)
-                    mav.mission_item_int_send(
-                        ts, tc,
-                        seq,
-                        3,       # frame: MAV_FRAME_GLOBAL_RELATIVE_ALT
-                        cmd_id,
-                        0,       # current
-                        1,       # autocontinue
-                        float(wp.get('p1', 0)),   # param1
-                        float(wp.get('p2', 0)),   # param2: yarıçap, tekrar vb.
-                        float(wp.get('p3', 0)),   # param3: ivme, dikey bekleme vb.
-                        0,                         # param4: yaw
-                        int(wp['lat'] * 1e7),
-                        int(wp['lon'] * 1e7),
-                        float(wp.get('alt', 50)),
-                        mission_type=0
-                    )
-            elif t == 'MISSION_ACK':
-                ok  = (msg.type == 0)   # MAV_MISSION_ACCEPTED = 0
-                msg_str = "Görev yüklendi ✓" if ok else f"Drone hatası: {msg.type}"
-                self.mission_yuklendi.emit(ok, msg_str)
-                return
+        elif seq - 1 < len(wp_listesi):
+            wp = wp_listesi[seq - 1]
+            _KOMUT_KODLARI = {
+                "NAV_WAYPOINT":      16,
+                "TAKEOFF":           22,
+                "LAND":              21,
+                "LOITER_TURNS":      18,
+                "LOITER_TIME":       19,
+                "LOITER_UNLIMITED":  17,
+                "RTL":               20,
+                "DELAY":             93,
+                "DO_LAND_START":     189,
+            }
+            cmd_id = _KOMUT_KODLARI.get(wp.get("komut", "NAV_WAYPOINT"), 16)
+            mav.mission_item_int_send(
+                ts, tc,
+                seq,
+                3,       # frame: MAV_FRAME_GLOBAL_RELATIVE_ALT
+                cmd_id,
+                0,       # current
+                1,       # autocontinue
+                float(wp.get('p1', 0)),   # param1
+                float(wp.get('p2', 0)),   # param2: yarıçap, tekrar vb.
+                float(wp.get('p3', 0)),   # param3: ivme, dikey bekleme vb.
+                0,                         # param4: yaw
+                int(wp['lat'] * 1e7),
+                int(wp['lon'] * 1e7),
+                float(wp.get('alt', 50)),
+                mission_type=0
+            )
 
-        self.mission_yuklendi.emit(False, "Zaman aşımı — drone yanıt vermedi (15 sn)")
+    def _isle_mission_ack(self, msg):
+        """MISSION_ACK geldiğinde yükleme sonucunu bildirir ve durumu temizler."""
+        if self._mission_yukle_durumu is None:
+            return   # bu ACK bizim yükleme akışımızla ilgili değil
+        ok = (msg.type == 0)   # MAV_MISSION_ACCEPTED = 0
+        msg_str = "Görev yüklendi ✓" if ok else f"Drone hatası: {msg.type}"
+        self.mission_yuklendi.emit(ok, msg_str)
+        self._mission_yukle_durumu = None
 
     def mission_wp_atla(self, seq: int):
         """Uçuş sırasında belirtilen seq numaralı WP'yi aktif yapar (MISSION_SET_CURRENT)."""
@@ -936,52 +984,74 @@ class MAVLinkBaglantisi(QThread):
         self.log_listesi_alindi.emit(loglar)
 
     def log_indir(self, log_id: int, kayit_yolu: str):
-        """Belirtilen log_id'yi indirir. Bloklamalı — ayrı bir kuyruk thread'inde çalışır."""
-        self._kuyruga_ekle(self._log_indir_ic, log_id, kayit_yolu)
+        """
+        Belirtilen log_id'yi indirir. Kuyruk üzerinden BAŞLATILIR; ilerleme
+        _mesaj_dongusu'nun normal dispatch'inden (LOG_ENTRY → boyut,
+        LOG_DATA → veri parçaları) gelen mesajlarla kademeli yürür. Bu sayede
+        indirme sürerken (120 sn'ye kadar) HEARTBEAT/GPS/telemetri mesajları
+        işlenmeye devam eder — eskiden burada ayrı bir blocking recv_match
+        döngüsü vardı ve eşleşmeyen tüm mesajları sessizce yutup telemetriyi
+        dakikalarca donduruyordu.
+        """
+        self._kuyruga_ekle(self._log_indir_baslat, log_id, kayit_yolu)
 
-    def _log_indir_ic(self, log_id: int, kayit_yolu: str):
+    def _log_indir_baslat(self, log_id: int, kayit_yolu: str):
+        """LOG_REQUEST_LIST gönderir, 'boyut bekleniyor' durumunu kurar ve döner."""
         if self._baglanti is None:
             self.log_hata.emit("Bağlantı yok")
             return
         mav = self._baglanti.mav
         ts, tc = self._baglanti.target_system, self._baglanti.target_component
-        # Log boyutunu bul
         mav.log_request_list_send(ts, tc, log_id, log_id)
-        boyut = 0
-        bitis = time.time() + 5.0
-        while time.time() < bitis:
-            msg = self._baglanti.recv_match(type="LOG_ENTRY", blocking=True, timeout=2.0)
-            if msg and msg.id == log_id:
-                boyut = msg.size
-                break
-        if boyut == 0:
-            self.log_hata.emit(f"Log {log_id} bulunamadı veya boyut 0")
+        self._log_indirme_durumu = {
+            "asama": "boyut",
+            "log_id": log_id,
+            "kayit_yolu": kayit_yolu,
+            "boyut": 0,
+            "alinan": {},
+            "chunk": 90,   # LOG_REQUEST_DATA ofs + count (max 90 bayt/mesaj)
+            "bitis": time.time() + 5.0,
+        }
+
+    def _isle_log_entry(self, msg):
+        """LOG_ENTRY geldiğinde boyutu öğrenir, veri indirme aşamasına geçer."""
+        durum = self._log_indirme_durumu
+        if durum is None or durum["asama"] != "boyut" or self._baglanti is None:
+            return
+        if msg.id != durum["log_id"]:
+            return
+        durum["boyut"] = msg.size
+        if durum["boyut"] == 0:
+            self.log_hata.emit(f"Log {durum['log_id']} bulunamadı veya boyut 0")
+            self._log_indirme_durumu = None
             return
 
-        CHUNK = 90   # LOG_REQUEST_DATA ofs + count (max 90 bayt/mesaj)
-        ofs = 0
-        parca_sayisi = (boyut + CHUNK - 1) // CHUNK
-        tampun = bytearray()
-        import struct
-        mav.log_request_data_send(ts, tc, log_id, 0, boyut)
-        bitis = time.time() + 120.0
-        alinan = {}
-        while len(alinan) < parca_sayisi and time.time() < bitis:
-            msg = self._baglanti.recv_match(type="LOG_DATA", blocking=True, timeout=3.0)
-            if msg is None:
-                continue
-            if msg.id != log_id:
-                continue
-            chunk_data = bytes(msg.data[:msg.count])
-            alinan[msg.ofs] = chunk_data
-            self.log_ilerleme.emit(len(alinan) * CHUNK, boyut)
-        # Sıralı birleştir
-        for ofs_k in sorted(alinan.keys()):
-            tampun.extend(alinan[ofs_k])
+        mav = self._baglanti.mav
+        ts, tc = self._baglanti.target_system, self._baglanti.target_component
+        mav.log_request_data_send(ts, tc, durum["log_id"], 0, durum["boyut"])
+        durum["asama"] = "veri"
+        durum["parca_sayisi"] = (durum["boyut"] + durum["chunk"] - 1) // durum["chunk"]
+        durum["bitis"] = time.time() + 120.0
 
-        try:
-            with open(kayit_yolu, "wb") as f:
-                f.write(tampun[:boyut])
-            self.log_tamamlandi.emit(kayit_yolu)
-        except Exception as e:
-            self.log_hata.emit(f"Dosya kaydetme hatası: {e}")
+    def _isle_log_data(self, msg):
+        """LOG_DATA parçalarını biriktirir; tamamlanınca dosyaya yazar."""
+        durum = self._log_indirme_durumu
+        if durum is None or durum["asama"] != "veri":
+            return
+        if msg.id != durum["log_id"]:
+            return
+        chunk_data = bytes(msg.data[:msg.count])
+        durum["alinan"][msg.ofs] = chunk_data
+        self.log_ilerleme.emit(len(durum["alinan"]) * durum["chunk"], durum["boyut"])
+
+        if len(durum["alinan"]) >= durum["parca_sayisi"]:
+            tampun = bytearray()
+            for ofs_k in sorted(durum["alinan"].keys()):
+                tampun.extend(durum["alinan"][ofs_k])
+            try:
+                with open(durum["kayit_yolu"], "wb") as f:
+                    f.write(tampun[:durum["boyut"]])
+                self.log_tamamlandi.emit(durum["kayit_yolu"])
+            except Exception as e:
+                self.log_hata.emit(f"Dosya kaydetme hatası: {e}")
+            self._log_indirme_durumu = None

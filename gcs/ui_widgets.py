@@ -136,7 +136,7 @@ class BataryaBar(QWidget):
         y = 3
 
         # Arka plan
-        painter.setBrush(QBrush(QColor("#1e2a3a")))
+        painter.setBrush(QBrush(QColor("#1d2d3d")))
         painter.setPen(QPen(QColor("#445566"), 1))
         painter.drawRoundedRect(0, y, w, h - y * 2, 4, 4)
 
@@ -253,7 +253,7 @@ class RuzgarGostergesi(QWidget):
             seviye = "KRİTİK"
 
         # Arka plan
-        painter.fillRect(0, 0, w, h, QColor("#0d1b2a"))
+        painter.fillRect(0, 0, w, h, QColor("#16222e"))
 
         # Ok çizimi (ön planda)
         cx, cy = w * 0.75, h / 2
