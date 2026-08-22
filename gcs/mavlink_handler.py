@@ -318,6 +318,15 @@ class MAVLinkBaglantisi(QThread):
 
     # ------------------------------------------------------------------
     def _isle_hb(self, msg):
+        # MAVProxy gibi aradaki bileşenler de kendi "GCS" heartbeat'ini aynı
+        # hat üzerinden gönderebiliyor (her zaman armed=False) — bu, drone'un
+        # gerçek heartbeat'iyle (armed=True) karışıp ARM durumunun saniyede
+        # bir True/False arasında salınmasına (ve "İniş algılandı" mesajının
+        # tekrar tekrar basılmasına) sebep oluyordu. Sadece bağlandığımız
+        # aracın kendi heartbeat'ini işliyoruz.
+        if (msg.get_srcSystem(), msg.get_srcComponent()) != \
+                (self._baglanti.target_system, self._baglanti.target_component):
+            return
         arm = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
         self.kalp_atisi.emit(msg.custom_mode, arm)
 
