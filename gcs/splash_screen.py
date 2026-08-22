@@ -134,8 +134,9 @@ class SplashEkrani(QWidget):
 
         baslik = QLabel("DOĞUŞ ÜNİVERSİTESİ LÖP")
         baslik.setAlignment(Qt.AlignCenter)
-        baslik.setFont(QFont("Barlow Condensed", 20, QFont.Bold))
-        baslik.setStyleSheet(f"color:{_VURGU2}; background:transparent; letter-spacing:2px;")
+        baslik.setWordWrap(True)
+        baslik.setFont(QFont("Barlow Condensed", 18, QFont.Bold))
+        baslik.setStyleSheet(f"color:{_VURGU2}; background:transparent;")
         ana.addWidget(baslik)
 
         altyazi = QLabel("Türkçe İnsansız Hava Aracı Yer İstasyonu")
