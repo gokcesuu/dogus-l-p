@@ -99,7 +99,7 @@
 
   "fence": {
     "_aciklama": "AC_Fence — ihlalde drone'u durdurur",
-    "alt_max": 120.0,
+    "alt_max": 150.0,
     "action": 1,
     "_action_aciklama": "0=sadece mesaj, 1=RTL, 2=LAND, 3=Smart RTL"
   },

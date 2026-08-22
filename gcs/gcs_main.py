@@ -2489,6 +2489,12 @@ class AnaPencere(QMainWindow):
             if cevap == QMessageBox.Yes:
                 self._mavlink.komut_gonder(400, 1, 0, 0, 0, 0, 0, 0)
                 self._mesaj_ekle(3, "ARM komutu gönderildi.")
+                self._mesaj_ekle(
+                    6,
+                    "➡ Sırada: 'Arming motors' mesajını gördükten sonra "
+                    "OTOMATİK moda geç (mission TAKEOFF ile başlıyorsa "
+                    "drone otomatik kalkar) — UÇUŞ sekmesindeki haritayı izlemeyi unutma."
+                )
 
     def _kalibrasyon_sihirbazi_ac(self):
         """Adım adım rehberli kalibrasyon dialogunu açar."""
@@ -5190,6 +5196,12 @@ class AnaPencere(QMainWindow):
             # Başarılı yükleme → OTOMATİK moda geç
             self._mavlink.mod_degistir(3)
             self._mesaj_ekle(4, "OTOMATİK mod — görev başladı.")
+            self._mesaj_ekle(
+                6,
+                "➡ Sırada: PRE-ARM'dan ARM et. (AUTO_OPTIONS parametresi 3 "
+                "değilse önce SABİTLEME'ye geçip orada ARM et, sonra tekrar "
+                "OTOMATİK'e dön — yoksa 'Auto mode not armable' hatası alırsın)"
+            )
             self._sesli_uyan("Görev yüklendi, otomatik mod başladı")
         else:
             self._mesaj_ekle(2, f"Waypoint yükleme hatası: {mesaj}")
@@ -5897,6 +5909,7 @@ class AnaPencere(QMainWindow):
     def _fence_yukle_tamamlandi(self, basarili: bool):
         if basarili:
             self._mesaj_ekle(4, "✓ AC_Fence ArduPilot'a yüklendi — FENCE_ENABLE=1 (RTL aktif).")
+            self._mesaj_ekle(6, "➡ Sırada: Haritada waypoint çiz, ilk WP'yi TAKEOFF yap, sonra 'WP ▾ → Görevi Yükle'.")
             # NPZ'den bounds oku ve terrain karar yükle (fence = terrain alanıdır)
             _npz = os.path.join(os.path.dirname(__file__), "alan_verisi.npz")
             if not os.path.isfile(_npz):
