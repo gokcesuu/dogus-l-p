@@ -2365,12 +2365,15 @@ class AnaPencere(QMainWindow):
             izgara.addWidget(cerceve)
             return durum
 
-        self._prearm_gps     = _satir("GPS Fix",          0)
-        self._prearm_ekf     = _satir("EKF Durumu",       1)
-        self._prearm_batarya = _satir("Batarya",          2)
-        self._prearm_rc      = _satir("RC / RSSI",        3)
-        self._prearm_imu     = _satir("IMU Sıcaklığı",   4)
-        self._prearm_genel   = _satir("Genel Durum",      5)
+        self._prearm_gps     = _satir("GPS Fix",              0)
+        self._prearm_ekf     = _satir("EKF Durumu",           1)
+        self._prearm_batarya = _satir("Batarya",              2)
+        self._prearm_hucre   = _satir("Batarya Hücre (min)",  3)
+        self._prearm_rc      = _satir("RC / RSSI",            4)
+        self._prearm_imu     = _satir("IMU1 Sıcaklığı",       5)
+        self._prearm_imu2    = _satir("IMU2 Sıcaklığı",       6)
+        self._prearm_vib     = _satir("Titreşim",             7)
+        self._prearm_genel   = _satir("Genel Durum",          8)
 
         ana.addLayout(izgara)
 
@@ -2383,13 +2386,14 @@ class AnaPencere(QMainWindow):
         ana.addWidget(ara)
         self._prearm_mesajlar = QTextEdit()
         self._prearm_mesajlar.setReadOnly(True)
-        self._prearm_mesajlar.setMaximumHeight(90)
+        self._prearm_mesajlar.setMinimumHeight(200)
         self._prearm_mesajlar.setFont(QFont("Courier New", 9))
         self._prearm_mesajlar.setStyleSheet(
             f"background:{KOKPIT_ZEMIN}; color:#c8d8e8; border:1px solid {KOKPIT_KENAR};"
         )
-        ana.addWidget(self._prearm_mesajlar)
-        ana.addStretch()
+        # Sabit yükseklik yerine artık kalan boş alanı doldurur (stretch=1) —
+        # eskiden altta büyük bir boş alan kalıyordu.
+        ana.addWidget(self._prearm_mesajlar, 1)
 
         # ── Sağ kolon (430px) — ARM DURUMU / GÜVENLİK KATMANLARI / KALİBRASYON ──
         sag_w = QWidget()
@@ -2513,11 +2517,14 @@ class AnaPencere(QMainWindow):
                           f"RSSI {rssi}" + (" ⚠ Failsafe" if failsafe else ""), ok)
 
     def _prearm_imu_guncelle(self, imu_no: int, sicaklik: float):
-        # IMU0'ı izle
-        if imu_no != 0:
-            return
+        # Donanımda 2 IMU var (ICM-42688-P + BMI088, bkz. hwdef.dat) — ikisi
+        # de ayrı ayrı izleniyor, tek IMU'nun aşırı ısınması/soğuması artık
+        # gözden kaçmıyor.
         ok = 30 <= sicaklik <= 65
-        self._prearm_renk(self._prearm_imu, f"IMU0: {sicaklik:.1f}°C", ok)
+        if imu_no == 0:
+            self._prearm_renk(self._prearm_imu, f"IMU1: {sicaklik:.1f}°C", ok)
+        elif imu_no == 1:
+            self._prearm_renk(self._prearm_imu2, f"IMU2: {sicaklik:.1f}°C", ok)
 
     def _prearm_arm_guncelle(self, mod_id: int, arm: bool):
         if arm:
@@ -4051,6 +4058,9 @@ class AnaPencere(QMainWindow):
         Sürekli yüksek vibrasyonda EK3_WIND_P_NSE ayar önerisi üretir."""
         self._guncel_vibrasyon_mss = vib_mss
         self._guncel_vib_klip      = klipping
+        if hasattr(self, "_prearm_vib"):
+            ok = vib_mss < 30.0 and klipping == 0
+            self._prearm_renk(self._prearm_vib, f"{vib_mss:.1f} m/s² · klip {klipping}", ok)
 
         # ── EK3_WIND_P_NSE akıllı uyarı ─────────────────────────────────────
         # Vibrasyon > 30 m/s² → EKF rüzgar tahmini güvenilmez.
@@ -4984,6 +4994,8 @@ class AnaPencere(QMainWindow):
         """BATTERY_STATUS: hücre başına minimum voltaj — kritik hücre uyarısı."""
         self._min_hucre_volt = min_volt
         kritik = float(_cfg.al("batarya.hucre_kritik_volt", 3.3))
+        if hasattr(self, "_prearm_hucre") and min_volt > 0:
+            self._prearm_renk(self._prearm_hucre, f"{min_volt:.3f}V ({hucre_sayisi}S)", min_volt >= kritik)
         if min_volt < kritik and min_volt > 0:
             self._mesaj_ekle(1,
                 f"⚠ KRİTİK HÜCRE: {min_volt:.3f}V "
