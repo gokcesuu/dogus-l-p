@@ -445,10 +445,25 @@ function inisHedefTemizle() {
 }
 
 var _enYakinLat = null, _enYakinLon = null;
+var enYakinMarker = null;
 
 function enYakinNoktayiKaydet(lat, lon) {
   _enYakinLat = lat; _enYakinLon = lon;
   document.getElementById('inisBtn').disabled = false;
+  // "En yakın güvenli iniş" noktasını haritada belirgin bir işaretle göster —
+  // önceden sadece guvenliKatman'daki genel yeşil noktalardan biriydi,
+  // hangisinin "en yakın/önerilen" olduğu ayırt edilemiyordu.
+  if (enYakinMarker) { map.removeLayer(enYakinMarker); }
+  enYakinMarker = L.marker([lat, lon], {
+    icon: L.divIcon({
+      html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(0 0 3px #000);">\\u2b50</div>',
+      iconSize: [28, 28], iconAnchor: [14, 26], className: '',
+    }),
+    zIndexOffset: 900,
+  }).bindTooltip(
+    '<b>\\u2b50 En Yak\\u0131n G\\u00fcvenli \\u0130ni\\u015f</b><br>' + lat.toFixed(5) + ', ' + lon.toFixed(5),
+    {permanent: false, direction: 'top'}
+  ).addTo(map);
 }
 
 // -- Terrain analiz siniri (mavi kesik) --
